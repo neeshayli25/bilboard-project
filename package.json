@@ -1,0 +1,12 @@
+{
+  "name": "cdbms-project-practice",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "install:all": "npm install --prefix backend && npm install --prefix react-frontend",
+    "dev": "start-cdbms.cmd",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix react-frontend run dev",
+    "build": "npm --prefix react-frontend run build"
+  }
+}

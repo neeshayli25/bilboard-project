@@ -1,0 +1,715 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CDBMS Display + Arduino Bridge</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #07111f;
+        --panel: rgba(12, 23, 39, 0.92);
+        --border: rgba(56, 189, 248, 0.22);
+        --accent: #38bdf8;
+        --accent-2: #22c55e;
+        --warn: #f59e0b;
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --danger: #f87171;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at top, rgba(56, 189, 248, 0.16), transparent 30%),
+          linear-gradient(180deg, #020617 0%, var(--bg) 100%);
+        color: var(--text);
+        padding: 24px;
+      }
+
+      .shell {
+        width: min(1320px, 100%);
+        margin: 0 auto;
+        display: grid;
+        gap: 20px;
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 24px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+        overflow: hidden;
+      }
+
+      .toolbar {
+        display: grid;
+        grid-template-columns: repeat(9, minmax(0, 1fr));
+        gap: 14px;
+        padding: 18px;
+      }
+
+      .field {
+        display: grid;
+        gap: 6px;
+      }
+
+      .field label {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+      }
+
+      .field input,
+      .field select,
+      .field button {
+        width: 100%;
+        border-radius: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(2, 6, 23, 0.85);
+        color: var(--text);
+        padding: 12px 14px;
+        font-size: 14px;
+      }
+
+      .field input[readonly] {
+        color: var(--muted);
+      }
+
+      .field button {
+        cursor: pointer;
+        font-weight: 700;
+        background: linear-gradient(135deg, rgba(56, 189, 248, 0.2), rgba(34, 197, 94, 0.2));
+      }
+
+      .field button.secondary {
+        background: linear-gradient(135deg, rgba(245, 158, 11, 0.18), rgba(248, 113, 113, 0.18));
+      }
+
+      .field button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .meta {
+        padding: 18px 22px;
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      }
+
+      .screen {
+        aspect-ratio: 16 / 9;
+        width: 100%;
+        background: #020617;
+        display: grid;
+        place-items: center;
+      }
+
+      .screen img,
+      .screen video {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .screen-message {
+        max-width: 680px;
+        text-align: center;
+        padding: 20px;
+      }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border-radius: 999px;
+        padding: 8px 12px;
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      .status.idle,
+      .status.offline {
+        background: rgba(148, 163, 184, 0.12);
+        color: var(--muted);
+        border: 1px solid rgba(148, 163, 184, 0.2);
+      }
+
+      .status.active,
+      .status.scheduled,
+      .status.connected {
+        background: rgba(34, 197, 94, 0.12);
+        color: var(--accent-2);
+        border: 1px solid rgba(34, 197, 94, 0.25);
+      }
+
+      .status.warning,
+      .status.demo {
+        background: rgba(245, 158, 11, 0.14);
+        color: var(--warn);
+        border: 1px solid rgba(245, 158, 11, 0.25);
+      }
+
+      .title {
+        font-size: 18px;
+        font-weight: 800;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 18px;
+        padding: 18px;
+      }
+
+      .card {
+        background: rgba(2, 6, 23, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 18px;
+        padding: 16px;
+      }
+
+      .card h3 {
+        margin: 0 0 12px 0;
+        font-size: 14px;
+      }
+
+      code {
+        white-space: pre-wrap;
+        word-break: break-all;
+        color: #bfdbfe;
+      }
+
+      .danger {
+        color: var(--danger);
+      }
+
+      .ok {
+        color: var(--accent-2);
+      }
+
+      .notice {
+        padding: 14px 18px;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+        background: rgba(56, 189, 248, 0.06);
+        font-size: 14px;
+      }
+
+      @media (max-width: 1100px) {
+        .toolbar,
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <div class="panel">
+        <div class="toolbar">
+          <div class="field">
+            <label for="apiBase">API Base</label>
+            <input id="apiBase" />
+          </div>
+          <div class="field">
+            <label for="billboardSelect">Billboard / ID</label>
+            <select id="billboardSelect">
+              <option value="">Loading billboards...</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="billboardId">Selected Billboard ID</label>
+            <input id="billboardId" placeholder="Select billboard from dropdown" readonly />
+          </div>
+          <div class="field">
+            <label for="deviceToken">Device Token</label>
+            <input id="deviceToken" placeholder="Auto-filled from selected billboard" />
+          </div>
+          <div class="field">
+            <label for="deviceLabel">Device Label</label>
+            <input id="deviceLabel" placeholder="Main roadside screen" />
+          </div>
+          <div class="field">
+            <label>Billboards</label>
+            <button id="refreshBillboards">Reload Billboards</button>
+          </div>
+          <div class="field">
+            <label>Arduino</label>
+            <button id="connectArduino">Connect Arduino (USB)</button>
+          </div>
+          <div class="field">
+            <label>Fallback</label>
+            <button id="demoArduinoBtn" class="secondary">Enable Demo Arduino</button>
+          </div>
+          <div class="field">
+            <label>Display</label>
+            <button id="goFullscreen">Open Fullscreen</button>
+          </div>
+        </div>
+        <div class="notice" id="noticeBar">
+          Choose the billboard from the dropdown. Then connect Arduino over USB and use Admin > Bookings > Display Now for instant demo playback.
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="meta">
+          <div>
+            <div class="muted">Centralized Digital Billboard Management System</div>
+            <div id="adTitle" class="title">Waiting for live display payload</div>
+          </div>
+          <div id="adStatus" class="status idle">Idle</div>
+        </div>
+        <div class="screen" id="screen">
+          <div class="screen-message">
+            <div class="muted">Waiting for backend connection</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="grid">
+          <div class="card">
+            <h3>Polling Endpoint</h3>
+            <code id="endpoint"></code>
+          </div>
+          <div class="card">
+            <h3>Backend Status</h3>
+            <div id="backendStatus" class="muted">Checking backend...</div>
+          </div>
+          <div class="card">
+            <h3>Arduino Status</h3>
+            <div id="arduinoStatus" class="muted">Not connected</div>
+          </div>
+          <div class="card">
+            <h3>Browser Support</h3>
+            <div id="browserSupport" class="muted">Checking browser...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const qs = new URLSearchParams(window.location.search);
+      const apiBaseInput = document.getElementById("apiBase");
+      const billboardSelect = document.getElementById("billboardSelect");
+      const billboardIdInput = document.getElementById("billboardId");
+      const deviceTokenInput = document.getElementById("deviceToken");
+      const deviceLabelInput = document.getElementById("deviceLabel");
+      const endpointNode = document.getElementById("endpoint");
+      const adTitle = document.getElementById("adTitle");
+      const adStatus = document.getElementById("adStatus");
+      const screen = document.getElementById("screen");
+      const arduinoStatus = document.getElementById("arduinoStatus");
+      const backendStatus = document.getElementById("backendStatus");
+      const browserSupport = document.getElementById("browserSupport");
+      const refreshBillboardsBtn = document.getElementById("refreshBillboards");
+      const connectArduinoBtn = document.getElementById("connectArduino");
+      const demoArduinoBtn = document.getElementById("demoArduinoBtn");
+      const fullscreenBtn = document.getElementById("goFullscreen");
+      const noticeBar = document.getElementById("noticeBar");
+
+      const savedApiBase = localStorage.getItem("cdbms_api_base");
+      const savedBillboardId = localStorage.getItem("cdbms_billboard_id");
+      const savedDeviceToken = localStorage.getItem("cdbms_device_token");
+      const savedDeviceLabel = localStorage.getItem("cdbms_device_label");
+      const savedDemoArduino = localStorage.getItem("cdbms_demo_arduino") === "true";
+
+      apiBaseInput.value = qs.get("apiBase") || savedApiBase || `${window.location.origin}/api`;
+      billboardIdInput.value = qs.get("billboardId") || savedBillboardId || "";
+      deviceTokenInput.value = qs.get("token") || savedDeviceToken || "";
+      deviceLabelInput.value = qs.get("deviceLabel") || savedDeviceLabel || "Arduino Bridge Screen";
+
+      const supportsSerial = "serial" in navigator;
+      const secureContextOk = window.isSecureContext;
+
+      let serialPort = null;
+      let serialWriter = null;
+      let lastSerialFingerprint = "";
+      let demoArduinoEnabled = savedDemoArduino;
+      let backendConnected = false;
+      let billboardRegistry = [];
+
+      const persistConfig = () => {
+        localStorage.setItem("cdbms_api_base", apiBaseInput.value.trim());
+        localStorage.setItem("cdbms_billboard_id", billboardIdInput.value.trim());
+        localStorage.setItem("cdbms_device_token", deviceTokenInput.value.trim());
+        localStorage.setItem("cdbms_device_label", deviceLabelInput.value.trim());
+        localStorage.setItem("cdbms_demo_arduino", String(demoArduinoEnabled));
+      };
+
+      const normalizeApiBase = () => apiBaseInput.value.trim().replace(/\/$/, "");
+
+      const setStatusBadge = (value) => {
+        adStatus.textContent = value || "idle";
+        adStatus.className = `status ${value || "idle"}`;
+      };
+
+      const renderScreenMessage = (title, message) => {
+        adTitle.textContent = title;
+        screen.innerHTML = `
+          <div class="screen-message">
+            <div class="title" style="margin-bottom: 10px;">${title}</div>
+            <div class="muted">${message}</div>
+          </div>
+        `;
+      };
+
+      const updateSupportStatus = () => {
+        if (supportsSerial && secureContextOk) {
+          browserSupport.innerHTML = '<span class="ok">Web Serial available in this browser.</span>';
+          connectArduinoBtn.disabled = false;
+          return;
+        }
+
+        if (!supportsSerial) {
+          browserSupport.innerHTML = '<span class="danger">Web Serial is not supported in this browser. Use desktop Chrome or Edge, or continue with Demo Arduino.</span>';
+        } else if (!secureContextOk) {
+          browserSupport.innerHTML = '<span class="danger">Web Serial needs a secure context. Use localhost or HTTPS, or continue with Demo Arduino.</span>';
+        }
+
+        connectArduinoBtn.disabled = true;
+      };
+
+      const updateArduinoStatus = (message, state = "muted") => {
+        if (state === "danger") {
+          arduinoStatus.innerHTML = `<span class="danger">${message}</span>`;
+          return;
+        }
+        if (state === "ok") {
+          arduinoStatus.innerHTML = `<span class="ok">${message}</span>`;
+          return;
+        }
+        if (state === "warn") {
+          arduinoStatus.innerHTML = `<span style="color: var(--warn)">${message}</span>`;
+          return;
+        }
+        arduinoStatus.textContent = message;
+      };
+
+      const setDemoArduino = (enabled) => {
+        demoArduinoEnabled = enabled;
+        persistConfig();
+        demoArduinoBtn.textContent = enabled ? "Demo Arduino Enabled" : "Enable Demo Arduino";
+
+        if (enabled && !serialWriter) {
+          updateArduinoStatus("Demo Arduino active. The page will simulate Arduino LED and USB bridge state.", "warn");
+        } else if (!enabled && !serialWriter) {
+          updateArduinoStatus("Not connected");
+        }
+      };
+
+      const formatBillboardLabel = (billboard) => {
+        const suffix = billboard.id ? String(billboard.id).slice(-6) : "no-id";
+        const location = billboard.location ? ` - ${billboard.location}` : "";
+        const city = billboard.city ? `, ${billboard.city}` : "";
+        return `${billboard.name || "Unnamed Billboard"} (${suffix})${location}${city}`;
+      };
+
+      const renderBillboardOptions = () => {
+        const selectedId = billboardIdInput.value.trim();
+        billboardSelect.innerHTML = "";
+
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = billboardRegistry.length
+          ? "Select billboard to control"
+          : "No billboards found";
+        billboardSelect.appendChild(placeholder);
+
+        billboardRegistry.forEach((billboard) => {
+          const option = document.createElement("option");
+          option.value = billboard.id;
+          option.textContent = formatBillboardLabel(billboard);
+          billboardSelect.appendChild(option);
+        });
+
+        if (selectedId && billboardRegistry.some((billboard) => String(billboard.id) === selectedId)) {
+          billboardSelect.value = selectedId;
+        }
+      };
+
+      const applySelectedBillboard = (billboardId) => {
+        const selected = billboardRegistry.find((billboard) => String(billboard.id) === String(billboardId || ""));
+
+        billboardIdInput.value = selected?.id || "";
+        billboardSelect.value = selected?.id || "";
+
+        if (selected) {
+          deviceTokenInput.value = selected.displayConfig?.deviceToken || "";
+          deviceLabelInput.value = selected.displayConfig?.deviceLabel || selected.name || "Arduino Bridge Screen";
+          noticeBar.innerHTML = `Selected <b>${selected.name}</b> for this browser display. Screen code <b>${selected.displayConfig?.screenCode || "N/A"}</b>. Use <b>Admin &gt; Bookings &gt; Display Now</b> or wait for scheduled playback.`;
+        } else {
+          noticeBar.innerHTML = "Choose the billboard from the dropdown. Then connect Arduino over USB and use Admin > Bookings > Display Now for instant demo playback.";
+        }
+
+        persistConfig();
+        buildEndpoint();
+      };
+
+      const loadBillboardRegistry = async () => {
+        const registryUrl = `${normalizeApiBase()}/hardware/registry`;
+        refreshBillboardsBtn.disabled = true;
+        refreshBillboardsBtn.textContent = "Loading...";
+
+        try {
+          const response = await fetch(registryUrl);
+          if (!response.ok) {
+            throw new Error(`Registry request failed with ${response.status}`);
+          }
+
+          const data = await response.json().catch(() => []);
+          billboardRegistry = Array.isArray(data) ? data : [];
+        } catch (error) {
+          billboardRegistry = [];
+          console.error("Could not load billboard registry", error);
+        } finally {
+          renderBillboardOptions();
+
+          const preferredId = qs.get("billboardId") || savedBillboardId || billboardIdInput.value.trim();
+          if (
+            preferredId &&
+            billboardRegistry.some((billboard) => String(billboard.id) === String(preferredId))
+          ) {
+            applySelectedBillboard(preferredId);
+          } else if (!billboardIdInput.value.trim() && billboardRegistry.length === 1) {
+            applySelectedBillboard(billboardRegistry[0].id);
+          }
+
+          refreshBillboardsBtn.disabled = false;
+          refreshBillboardsBtn.textContent = "Reload Billboards";
+        }
+      };
+
+      const buildEndpoint = () => {
+        const apiBase = normalizeApiBase();
+        const billboardId = billboardIdInput.value.trim();
+        const deviceToken = deviceTokenInput.value.trim();
+        const params = new URLSearchParams();
+
+        if (billboardId) params.set("billboardId", billboardId);
+        if (deviceToken) params.set("token", deviceToken);
+
+        const suffix = params.toString() ? `?${params.toString()}` : "";
+        const endpoint = `${apiBase}/display/current${suffix}`;
+        endpointNode.textContent = endpoint;
+        return endpoint;
+      };
+
+      const render = (payload) => {
+        adTitle.textContent = payload.title || "No active ad";
+        setStatusBadge(payload.status || "idle");
+
+        if (payload.device?.screenCode) {
+          noticeBar.innerHTML = `Screen <b>${payload.device.screenCode}</b> is linked to billboard <b>${payload.billboard?.name || "Unknown"}</b>. Use <b>Admin &gt; Bookings &gt; Display Now</b> for an instant demo push.`;
+        }
+
+        if (!payload.imageUrl) {
+          if (!billboardIdInput.value.trim()) {
+            renderScreenMessage("No billboard selected", "Choose a billboard from the dropdown first.");
+            return;
+          }
+
+          if (!backendConnected) {
+            renderScreenMessage("Waiting for backend connection", "Check that backend is running and the API Base points to the correct machine.");
+            return;
+          }
+
+          renderScreenMessage(
+            "No active ad on display",
+            "Backend is connected, but this billboard has no active content right now. For instant demo, approve the booking and click Display Now in Admin > Bookings."
+          );
+          return;
+        }
+
+        const apiBase = normalizeApiBase();
+        const mediaUrl = payload.imageUrl.startsWith("http")
+          ? payload.imageUrl
+          : `${apiBase.replace(/\/api$/, "")}${payload.imageUrl}`;
+
+        if (payload.mediaType === "video") {
+          screen.innerHTML = `<video src="${mediaUrl}" autoplay muted loop playsinline></video>`;
+        } else {
+          screen.innerHTML = `<img src="${mediaUrl}" alt="${payload.title || "Active billboard ad"}" />`;
+        }
+      };
+
+      const syncDemoArduinoStatus = (payload) => {
+        if (!demoArduinoEnabled || serialWriter) return;
+
+        if (payload.imageUrl) {
+          updateArduinoStatus("Demo Arduino synced. LED should be considered ON for active ad.", "ok");
+          return;
+        }
+
+        updateArduinoStatus("Demo Arduino synced. LED should be considered blinking for idle state.", "warn");
+      };
+
+      const sendToArduino = async (payload) => {
+        syncDemoArduinoStatus(payload);
+        if (!serialWriter) return;
+
+        const fingerprint = JSON.stringify({
+          state: payload.imageUrl ? "ACTIVE" : "IDLE",
+          screen: payload.device?.screenCode || "",
+          billboard: payload.billboard?.name || "",
+          booking: payload.bookingId || "",
+          title: payload.title || "No ad",
+          duration: payload.duration || 30,
+          slot: payload.timeSlot || "",
+        });
+
+        if (fingerprint === lastSerialFingerprint) return;
+        lastSerialFingerprint = fingerprint;
+
+        const lines = [
+          `STATE:${payload.imageUrl ? "ACTIVE" : "IDLE"}`,
+          `SCREEN:${(payload.device?.screenCode || "NO_SCREEN").slice(0, 24)}`,
+          `BILLBOARD:${(payload.billboard?.name || "No Billboard").slice(0, 32)}`,
+          `BOOKING:${(payload.bookingId || "NONE").slice(0, 36)}`,
+          `TITLE:${(payload.title || "No ad").slice(0, 48)}`,
+          `DURATION:${payload.duration || 30}`,
+          `SLOT:${(payload.timeSlot || "").slice(0, 32)}`,
+          "END",
+        ];
+
+        for (const line of lines) {
+          await serialWriter.write(new TextEncoder().encode(`${line}\n`));
+        }
+
+        updateArduinoStatus("Arduino connected and synced", "ok");
+      };
+
+      const sendHeartbeat = async (payload) => {
+        const apiBase = normalizeApiBase();
+        const billboardId = billboardIdInput.value.trim();
+        const token = deviceTokenInput.value.trim();
+
+        if (!billboardId) return;
+
+        const heartbeatUrl = `${apiBase.replace(/\/display$/, "").replace(/\/api$/, "/api")}/hardware/heartbeat/${encodeURIComponent(billboardId)}`;
+
+        try {
+          await fetch(`${heartbeatUrl}${token ? `?token=${encodeURIComponent(token)}` : ""}`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              deviceLabel: deviceLabelInput.value.trim(),
+              browserConnected: true,
+              arduinoConnected: Boolean(serialWriter || demoArduinoEnabled),
+              serialMode: serialWriter ? "usb_serial" : demoArduinoEnabled ? "demo_browser_bridge" : "none",
+              playbackState: payload.status || "idle",
+              nowPlayingTitle: payload.title || "No ad scheduled",
+              bookingId: payload.bookingId || "",
+              hardwareNotes: demoArduinoEnabled ? "Demo Arduino bridge enabled in browser." : "",
+            }),
+          });
+        } catch (error) {
+          console.error("Heartbeat failed", error);
+        }
+      };
+
+      const poll = async () => {
+        persistConfig();
+        const endpoint = buildEndpoint();
+
+        try {
+          const response = await fetch(endpoint);
+          if (!response.ok) {
+            const problem = await response.json().catch(() => ({}));
+            throw new Error(problem.message || `Display request failed with ${response.status}`);
+          }
+
+          const data = await response.json();
+          backendConnected = true;
+          backendStatus.innerHTML = '<span class="ok">Backend connected.</span>';
+          render(data || {});
+          await sendToArduino(data || {});
+          await sendHeartbeat(data || {});
+        } catch (error) {
+          backendConnected = false;
+          adTitle.textContent = "Display API unavailable";
+          setStatusBadge("offline");
+          renderScreenMessage(
+            "Waiting for backend connection",
+            "The display page cannot reach your server. Verify the API Base URL and make sure backend is running and accessible."
+          );
+          backendStatus.innerHTML = `<span class="danger">Backend unreachable. ${error.message || "Check server URL."}</span>`;
+          if (!demoArduinoEnabled && !serialWriter) {
+            updateArduinoStatus("Waiting for display data", "danger");
+          }
+        }
+      };
+
+      connectArduinoBtn.addEventListener("click", async () => {
+        if (!supportsSerial || !secureContextOk) {
+          updateSupportStatus();
+          return;
+        }
+
+        try {
+          serialPort = await navigator.serial.requestPort();
+          await serialPort.open({ baudRate: 115200 });
+          serialWriter = serialPort.writable.getWriter();
+          updateArduinoStatus("Arduino connected. Waiting for display sync...", "ok");
+          connectArduinoBtn.textContent = "Arduino Connected";
+          demoArduinoEnabled = false;
+          persistConfig();
+          await serialWriter.write(new TextEncoder().encode("PING\n"));
+        } catch (error) {
+          updateArduinoStatus(`Arduino connection failed: ${error.message}`, "danger");
+        }
+      });
+
+      demoArduinoBtn.addEventListener("click", () => {
+        setDemoArduino(!demoArduinoEnabled);
+      });
+
+      fullscreenBtn.addEventListener("click", async () => {
+        try {
+          await document.documentElement.requestFullscreen();
+        } catch (error) {
+          console.error(error);
+        }
+      });
+
+      refreshBillboardsBtn.addEventListener("click", async () => {
+        await loadBillboardRegistry();
+        poll();
+      });
+
+      billboardSelect.addEventListener("change", () => {
+        applySelectedBillboard(billboardSelect.value);
+        poll();
+      });
+
+      apiBaseInput.addEventListener("change", async () => {
+        await loadBillboardRegistry();
+        poll();
+      });
+      deviceTokenInput.addEventListener("change", poll);
+      deviceLabelInput.addEventListener("change", poll);
+
+      updateSupportStatus();
+      setDemoArduino(demoArduinoEnabled);
+      buildEndpoint();
+      loadBillboardRegistry().then(poll);
+      setInterval(poll, 3000);
+    </script>
+  </body>
+</html>

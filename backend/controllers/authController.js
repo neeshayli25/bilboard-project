@@ -254,8 +254,8 @@ const resolveEmailDeliveryTargets = async (req, kind = 'verify') => {
   );
 
   const actionBaseUrl =
-    pickMostReachableBaseUrl(configuredPublicFrontendBaseUrl, configuredPublicApiBaseUrl) ||
-    (canUseLanEmailLinks() ? pickMostReachableBaseUrl(frontendBaseUrl, lanApiBaseUrl) : '');
+    pickMostReachableBaseUrl(configuredPublicApiBaseUrl, configuredPublicFrontendBaseUrl) ||
+    (canUseLanEmailLinks() ? pickMostReachableBaseUrl(lanApiBaseUrl, frontendBaseUrl) : '');
 
   if (!actionBaseUrl) {
     const error = new Error('No reachable public verification URL is available right now. Start the public host first.');
@@ -313,10 +313,10 @@ const getEmailActionBaseUrl = (req) => {
   const derivedApiBaseUrl = deriveApiBaseUrlFromFrontend(frontendBaseUrl);
 
   return (
-    pickMostReachableBaseUrl(frontendBaseUrl, configuredApiBaseUrl, derivedApiBaseUrl) ||
-    frontendBaseUrl ||
+    pickMostReachableBaseUrl(configuredApiBaseUrl, derivedApiBaseUrl, frontendBaseUrl) ||
     configuredApiBaseUrl ||
-    derivedApiBaseUrl
+    derivedApiBaseUrl ||
+    frontendBaseUrl
   );
 };
 

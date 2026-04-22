@@ -9,11 +9,12 @@ import {
   ImagePlus,
   MapPin,
   Monitor,
+  MonitorPlay,
   Search,
   UserRound,
   XCircle,
 } from "lucide-react";
-import { getBookings, updateBookingStatus } from "../../services/adminApi";
+import { getBookings, sendAdToDisplay, updateBookingStatus } from "../../services/adminApi";
 import { buildMediaUrl } from "../../utils/media";
 
 const STAGE_META = {
@@ -193,6 +194,20 @@ export default function AdminSchedule() {
     } catch (error) {
       console.error(error);
       alert(error.response?.data?.message || "Could not update the booking status.");
+    } finally {
+      setWorkingId("");
+    }
+  };
+
+  const handleDisplayNow = async (bookingId) => {
+    setWorkingId(bookingId);
+    try {
+      await sendAdToDisplay({ bookingId });
+      await loadBookings();
+      alert("Scheduled ad was pushed to the display simulator.");
+    } catch (error) {
+      console.error(error);
+      alert(error.response?.data?.message || "Could not push this ad to the display.");
     } finally {
       setWorkingId("");
     }
@@ -413,25 +428,45 @@ export default function AdminSchedule() {
                       )}
 
                       {stage === "verified" && (
-                        <button
-                          type="button"
-                          onClick={() => handleStatusUpdate(booking._id, "active")}
-                          disabled={workingId === booking._id}
-                          className="rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-5 py-3 text-sm font-black text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-50"
-                        >
-                          Mark Live
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleDisplayNow(booking._id)}
+                            disabled={workingId === booking._id}
+                            className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/15 px-5 py-3 text-sm font-black text-emerald-200 hover:bg-emerald-500/25 disabled:opacity-50"
+                          >
+                            <MonitorPlay size={16} /> Display Now
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleStatusUpdate(booking._id, "active")}
+                            disabled={workingId === booking._id}
+                            className="rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-5 py-3 text-sm font-black text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-50"
+                          >
+                            Mark Live
+                          </button>
+                        </>
                       )}
 
                       {stage === "active" && (
-                        <button
-                          type="button"
-                          onClick={() => handleStatusUpdate(booking._id, "completed")}
-                          disabled={workingId === booking._id}
-                          className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-5 py-3 text-sm font-black text-blue-200 hover:bg-blue-500/20 disabled:opacity-50"
-                        >
-                          Mark Completed
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleDisplayNow(booking._id)}
+                            disabled={workingId === booking._id}
+                            className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/15 px-5 py-3 text-sm font-black text-emerald-200 hover:bg-emerald-500/25 disabled:opacity-50"
+                          >
+                            <MonitorPlay size={16} /> Display Now
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleStatusUpdate(booking._id, "completed")}
+                            disabled={workingId === booking._id}
+                            className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-5 py-3 text-sm font-black text-blue-200 hover:bg-blue-500/20 disabled:opacity-50"
+                          >
+                            Mark Completed
+                          </button>
+                        </>
                       )}
 
                       {(stage === "verified" || stage === "active") && (

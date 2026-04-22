@@ -25,8 +25,7 @@ import {
   getMyBookings,
   getPayments,
 } from "../../api";
-
-const MEDIA_BASE_URL = (import.meta.env.VITE_API_URL || "/api").replace(/\/api$/, "");
+import { buildMediaUrl } from "../../utils/media";
 
 const STATUS_MAP = {
   approved: { color: "#0ea5e9", bg: "#0ea5e920", label: "Approved - Pay" },
@@ -39,11 +38,6 @@ const STATUS_MAP = {
   completed: { color: "#6366f1", bg: "#6366f120", label: "Completed" },
   paid: { color: "#10b981", bg: "#10b98120", label: "Verified" },
 };
-
-function buildMediaUrl(url = "") {
-  if (!url) return "";
-  return url.startsWith("http") ? url : `${MEDIA_BASE_URL}${url}`;
-}
 
 function formatPkr(value) {
   return `PKR ${Number(value || 0).toLocaleString()}`;

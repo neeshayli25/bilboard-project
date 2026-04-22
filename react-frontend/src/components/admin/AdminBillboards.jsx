@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Plus, Edit, Trash2, Power, MapPin, Monitor, X, Upload, Calendar, Clock, CheckCircle2, AlertCircle, Copy, ExternalLink } from "lucide-react";
 import { getBillboards, createBillboard, updateBillboard, deleteBillboard, rotateBillboardDisplayToken } from "../../services/adminApi";
 import { useSettings } from "../../context/SettingsContext";
+import { buildMediaUrl } from "../../utils/media";
 
 const sizeOptions = ["10ft x 20ft", "14ft x 48ft", "8ft x 16ft", "12ft x 30ft", "Custom"];
 const typeOptions = ["Digital LED", "LCD", "Static", "Neon"];
@@ -75,7 +76,7 @@ export default function AdminBillboards() {
     } else {
       setDateSlots({});
     }
-    setImagePreview(editing.imageUrl ? `http://localhost:5000${editing.imageUrl}` : "");
+    setImagePreview(editing.imageUrl ? buildMediaUrl(editing.imageUrl) : "");
   }, [editing]);
 
   // Flatten dateSlots → flat array for storage
@@ -307,7 +308,7 @@ export default function AdminBillboards() {
               <div key={b._id} className="bg-[#131A2A]/80 backdrop-blur-md border border-blue-500/10 rounded-2xl overflow-hidden hover:border-blue-500/40 transition-all duration-300 shadow-[0_0_20px_rgba(59,130,246,0.05)] hover:shadow-[0_0_30px_rgba(59,130,246,0.2)] group flex flex-col">
                 <div className="relative h-48 overflow-hidden bg-black/40 flex items-center justify-center">
                   {b.imageUrl ? (
-                    <img src={`http://localhost:5000${b.imageUrl}`} alt={b.name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity duration-500 group-hover:scale-105" />
+                    <img src={buildMediaUrl(b.imageUrl)} alt={b.name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity duration-500 group-hover:scale-105" />
                   ) : (
                     <Monitor size={48} className="text-white/10" />
                   )}

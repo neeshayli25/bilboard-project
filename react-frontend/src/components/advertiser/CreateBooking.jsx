@@ -19,9 +19,9 @@ import {
   getBillboardAvailability,
   uploadAd,
 } from "../../services/adminApi";
+import { buildMediaUrl } from "../../utils/media";
 
 const BOOKING_CONTEXT_KEY = "cdbms_booking_request_context";
-const MEDIA_BASE_URL = (import.meta.env.VITE_API_URL || "/api").replace(/\/api$/, "");
 const createEmptyAvailability = () => ({
   configuredSlots: [],
   availableSlots: [],
@@ -46,11 +46,6 @@ function saveStoredContext(value) {
 
 function clearStoredContext() {
   sessionStorage.removeItem(BOOKING_CONTEXT_KEY);
-}
-
-function buildMediaUrl(url = "") {
-  if (!url) return "";
-  return url.startsWith("http") ? url : `${MEDIA_BASE_URL}${url}`;
 }
 
 function getRequestErrorMessage(error, stageLabel) {

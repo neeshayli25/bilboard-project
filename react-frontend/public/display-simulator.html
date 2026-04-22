@@ -353,6 +353,14 @@
 
       const normalizeApiBase = () => apiBaseInput.value.trim().replace(/\/$/, "");
 
+      const resolveMediaUrl = (url = "") => {
+        const value = String(url || "").trim();
+        if (!value) return "";
+        if (/^(https?:|data:|blob:|\/\/)/i.test(value)) return value;
+        const path = value.startsWith("/") ? value : `/${value}`;
+        return `${normalizeApiBase().replace(/\/api$/, "")}${path}`;
+      };
+
       const setStatusBadge = (value) => {
         adStatus.textContent = value || "idle";
         adStatus.className = `status ${value || "idle"}`;
@@ -517,7 +525,11 @@
           noticeBar.innerHTML = `Screen <b>${payload.device.screenCode}</b> is linked to billboard <b>${payload.billboard?.name || "Unknown"}</b>. Use <b>Admin &gt; Bookings &gt; Display Now</b> for an instant demo push.`;
         }
 
-        if (!payload.imageUrl) {
+        const adMediaPath = payload.imageUrl || payload.ad?.mediaUrl || "";
+        const billboardImagePath = payload.billboard?.imageUrl || "";
+        const mediaUrl = resolveMediaUrl(adMediaPath || billboardImagePath);
+
+        if (!mediaUrl) {
           if (!billboardIdInput.value.trim()) {
             renderScreenMessage("No billboard selected", "Choose a billboard from the dropdown first.");
             return;
@@ -535,15 +547,10 @@
           return;
         }
 
-        const apiBase = normalizeApiBase();
-        const mediaUrl = payload.imageUrl.startsWith("http")
-          ? payload.imageUrl
-          : `${apiBase.replace(/\/api$/, "")}${payload.imageUrl}`;
-
-        if (payload.mediaType === "video") {
+        if (adMediaPath && payload.mediaType === "video") {
           screen.innerHTML = `<video src="${mediaUrl}" autoplay muted loop playsinline></video>`;
         } else {
-          screen.innerHTML = `<img src="${mediaUrl}" alt="${payload.title || "Active billboard ad"}" />`;
+          screen.innerHTML = `<img src="${mediaUrl}" alt="${payload.title || payload.billboard?.name || "Billboard display"}" />`;
         }
       };
 

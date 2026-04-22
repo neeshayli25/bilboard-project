@@ -8,6 +8,10 @@
       "destination": "https://cdbms-backend-w86i.onrender.com/api/:path*"
     },
     {
+      "source": "/uploads/:path*",
+      "destination": "https://cdbms-backend-w86i.onrender.com/uploads/:path*"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

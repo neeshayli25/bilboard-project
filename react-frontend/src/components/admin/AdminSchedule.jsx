@@ -14,8 +14,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { getBookings, updateBookingStatus } from "../../services/adminApi";
-
-const MEDIA_BASE_URL = (import.meta.env.VITE_API_URL || "/api").replace(/\/api$/, "");
+import { buildMediaUrl } from "../../utils/media";
 
 const STAGE_META = {
   pending_review: {
@@ -67,11 +66,6 @@ const STAGE_META = {
     bg: "bg-slate-500/10",
   },
 };
-
-function buildMediaUrl(url = "") {
-  if (!url) return "";
-  return url.startsWith("http") ? url : `${MEDIA_BASE_URL}${url}`;
-}
 
 function formatPkr(value) {
   return `PKR ${Number(value || 0).toLocaleString()}`;

@@ -17,8 +17,7 @@ import {
   Upload,
 } from "lucide-react";
 import { displayMyBooking, getMyBookings, submitManualPayment } from "../../api";
-
-const MEDIA_BASE_URL = (import.meta.env.VITE_API_URL || "/api").replace(/\/api$/, "");
+import { buildMediaUrl } from "../../utils/media";
 
 const FILTERS = [
   { id: "all", label: "All Requests" },
@@ -37,11 +36,6 @@ const emptyForm = {
   notes: "",
   paymentProof: null,
 };
-
-function buildMediaUrl(url = "") {
-  if (!url) return "";
-  return url.startsWith("http") ? url : `${MEDIA_BASE_URL}${url}`;
-}
 
 function formatCurrency(value) {
   return `PKR ${Number(value || 0).toLocaleString()}`;

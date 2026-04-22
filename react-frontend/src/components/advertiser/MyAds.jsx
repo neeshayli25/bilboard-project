@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Eye, Image as ImageIcon, CheckCircle, XCircle, Clock, RefreshCw, Edit, Save, X } from "lucide-react";
 import { getMyAdsAdvertiser, updateAd } from "../../api";
+import { buildMediaUrl } from "../../utils/media";
 
 export default function MyAds() {
   const [ads, setAds] = useState([]);
@@ -129,12 +130,12 @@ export default function MyAds() {
               {/* Media preview */}
               <div className="h-48 bg-gray-100 overflow-hidden relative">
                 {ad.mediaType === "image" ? (
-                  <img src={`${(import.meta.env.VITE_API_URL || "/api").replace(/\/api$/, "")}${ad.mediaUrl}`} alt={ad.title} className="w-full h-full object-cover" />
+                  <img src={buildMediaUrl(ad.mediaUrl)} alt={ad.title} className="w-full h-full object-cover" />
                 ) : (
-                  <video src={`${(import.meta.env.VITE_API_URL || "/api").replace(/\/api$/, "")}${ad.mediaUrl}`} className="w-full h-full object-cover" muted />
+                  <video src={buildMediaUrl(ad.mediaUrl)} className="w-full h-full object-cover" muted />
                 )}
                 <button
-                  onClick={() => window.open(`${(import.meta.env.VITE_API_URL || "/api").replace(/\/api$/, "")}${ad.mediaUrl}`, "_blank")}
+                  onClick={() => window.open(buildMediaUrl(ad.mediaUrl), "_blank")}
                   className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition"
                 >
                   <Eye size={32} className="text-white" />

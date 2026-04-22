@@ -78,6 +78,9 @@ const scheduleSort = (bookingA, bookingB) => {
   return slotA.startMinutes - slotB.startMinutes;
 };
 
+const findCurrentBooking = (schedule = [], now = new Date()) =>
+  schedule.find((booking) => isCurrentTimeInsideSlot(booking.timeSlot, now)) || null;
+
 const toScheduleEntry = (booking, now = new Date()) => ({
   bookingId: booking._id,
   timeSlot: booking.timeSlot,
@@ -103,6 +106,11 @@ const toDisplayPayload = (booking, source = 'schedule') => ({
   source,
   billboard: buildBillboardSummary(booking.billboard),
   ad: buildAdSummary(booking.ad),
+});
+
+const toPlayableDisplayPayload = (booking, now = new Date(), source = 'schedule') => ({
+  ...toDisplayPayload(booking, source),
+  status: isCurrentTimeInsideSlot(booking.timeSlot, now) && booking.status === 'active' ? 'active' : 'scheduled',
 });
 
 const getDeviceToken = (req) =>
@@ -349,7 +357,7 @@ export const getCurrentDisplayContent = async (req, res) => {
       );
     }
 
-    const currentBooking = schedule.find((booking) => isCurrentTimeInsideSlot(booking.timeSlot, now)) || null;
+    const currentBooking = findCurrentBooking(schedule, now);
 
     if (currentBooking) {
       if (currentBooking.status !== 'active') {
@@ -357,7 +365,20 @@ export const getCurrentDisplayContent = async (req, res) => {
         await currentBooking.save();
       }
 
-      const payload = toDisplayPayload(currentBooking);
+      const payload = toPlayableDisplayPayload(currentBooking, now);
+      return res.status(200).json(
+        buildDisplayResponse({
+          billboard,
+          payload,
+          schedule,
+          now,
+        })
+      );
+    }
+
+    const scheduledPreviewBooking = schedule[0] || null;
+    if (scheduledPreviewBooking) {
+      const payload = toPlayableDisplayPayload(scheduledPreviewBooking, now, 'schedule_preview');
       return res.status(200).json(
         buildDisplayResponse({
           billboard,
@@ -392,7 +413,8 @@ export const getDisplayContent = async (req, res) => {
 
     const now = new Date();
     const schedule = await getScheduleForBillboard(req.params.id, now);
-    const currentBooking = schedule.find((booking) => isCurrentTimeInsideSlot(booking.timeSlot, now)) || null;
+    const currentBooking = findCurrentBooking(schedule, now);
+    const displayBooking = currentBooking || schedule[0] || null;
 
     if (!schedule.length) {
       return res.status(200).json({
@@ -405,7 +427,9 @@ export const getDisplayContent = async (req, res) => {
 
     return res.status(200).json({
       type: currentBooking ? 'active' : 'schedule',
-      content: currentBooking ? toDisplayPayload(currentBooking) : buildIdlePayload(billboard),
+      content: displayBooking
+        ? toPlayableDisplayPayload(displayBooking, now, currentBooking ? 'schedule' : 'schedule_preview')
+        : buildIdlePayload(billboard),
       device: sanitizeDisplayConfigForDevice(billboard.displayConfig, now),
       schedule: schedule.map((booking) => toScheduleEntry(booking, now)),
     });
@@ -453,13 +477,16 @@ export const reportDisplayHeartbeat = async (req, res) => {
     await billboard.save();
 
     const currentPayload = await getScheduleForBillboard(billboard._id, now);
-    const activeBooking = currentPayload.find((booking) => isCurrentTimeInsideSlot(booking.timeSlot, now)) || null;
+    const currentBooking = findCurrentBooking(currentPayload, now);
+    const displayBooking = currentBooking || currentPayload[0] || null;
 
     return res.json({
       message: 'Heartbeat received.',
       heartbeatId: crypto.randomUUID(),
       device: sanitizeDisplayConfigForAdmin(billboard.displayConfig, now),
-      current: activeBooking ? toDisplayPayload(activeBooking) : buildIdlePayload(billboard),
+      current: displayBooking
+        ? toPlayableDisplayPayload(displayBooking, now, currentBooking ? 'schedule' : 'schedule_preview')
+        : buildIdlePayload(billboard),
     });
   } catch (error) {
     return res.status(500).json({ message: 'Failed to record display heartbeat', error: error.message });
@@ -478,13 +505,19 @@ export const getBillboardHardwareStatus = async (req, res) => {
     const now = new Date();
     const schedule = await getScheduleForBillboard(billboard._id, now);
     const manualOverride = getManualOverride(billboard._id);
+    const currentBooking = findCurrentBooking(schedule, now);
+    const displayBooking = currentBooking || schedule[0] || null;
 
     return res.json({
       billboard: {
         ...buildBillboardSummary(billboard),
         displayConfig: sanitizeDisplayConfigForAdmin(billboard.displayConfig, now),
       },
-      current: manualOverride || (schedule.find((booking) => isCurrentTimeInsideSlot(booking.timeSlot, now)) ? toDisplayPayload(schedule.find((booking) => isCurrentTimeInsideSlot(booking.timeSlot, now))) : buildIdlePayload(billboard)),
+      current:
+        manualOverride ||
+        (displayBooking
+          ? toPlayableDisplayPayload(displayBooking, now, currentBooking ? 'schedule' : 'schedule_preview')
+          : buildIdlePayload(billboard)),
       schedule: schedule.map((booking) => toScheduleEntry(booking, now)),
     });
   } catch (error) {

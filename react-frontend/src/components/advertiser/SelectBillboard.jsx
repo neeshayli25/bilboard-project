@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Monitor, MapPin, Search, ArrowLeft, Building2, Map, Tag } from "lucide-react";
 import { getAllBillboards } from "../../services/adminApi";
 import { motion, AnimatePresence } from "framer-motion";
+import { buildMediaUrl } from "../../utils/media";
 
 export default function SelectBillboard() {
   const [billboards, setBillboards] = useState([]);
@@ -173,7 +174,7 @@ export default function SelectBillboard() {
                         
                         <div className="relative h-64 overflow-hidden bg-[#0A0F1C]">
                           {b.imageUrl ? (
-                            <img src={`${(import.meta.env.VITE_API_URL || "/api").replace(/\/api$/, "")}${b.imageUrl}`} alt={b.name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-all duration-700 group-hover:scale-105" />
+                            <img src={buildMediaUrl(b.imageUrl)} alt={b.name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-all duration-700 group-hover:scale-105" />
                           ) : (
                             <div className="flex items-center justify-center h-full"><Monitor size={64} className="text-white/5" /></div>
                           )}

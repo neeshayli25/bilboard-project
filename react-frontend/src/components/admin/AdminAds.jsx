@@ -15,6 +15,7 @@ import {
   CheckSquare
 } from "lucide-react";
 import { getAllAds, approveAd, rejectAd, deleteAd } from "../../services/adminApi";
+import { buildMediaUrl } from "../../utils/media";
 
 const AdminAds = () => {
   const [ads, setAds] = useState([]);
@@ -25,8 +26,6 @@ const AdminAds = () => {
   const [previewMode, setPreviewMode] = useState(false);
   const [previewAd, setPreviewAd] = useState(null);
   const [mediaUrl, setMediaUrl] = useState("");
-
-  const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
   useEffect(() => {
     loadAds();
@@ -70,7 +69,7 @@ const AdminAds = () => {
 
   const previewAdHandler = (ad) => {
     setPreviewAd(ad);
-    setMediaUrl(`${API_BASE}${ad.mediaUrl || ad.imageUrl}`); // Fallback checks
+    setMediaUrl(buildMediaUrl(ad.mediaUrl || ad.imageUrl));
     setPreviewMode(true);
   };
 

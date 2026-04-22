@@ -22,13 +22,7 @@ import {
   getBookings,
   getTransactions,
 } from "../../services/adminApi";
-
-const MEDIA_BASE_URL = (import.meta.env.VITE_API_URL || "/api").replace(/\/api$/, "");
-
-function buildMediaUrl(url = "") {
-  if (!url) return "";
-  return url.startsWith("http") ? url : `${MEDIA_BASE_URL}${url}`;
-}
+import { buildMediaUrl } from "../../utils/media";
 
 function formatPkr(value) {
   return `PKR ${Number(value || 0).toLocaleString()}`;

@@ -21,8 +21,7 @@ import {
   rejectBookingPayment,
   sendAdToDisplay,
 } from "../../services/adminApi";
-
-const MEDIA_BASE_URL = (import.meta.env.VITE_API_URL || "/api").replace(/\/api$/, "");
+import { buildMediaUrl } from "../../utils/media";
 
 const FILTERS = [
   { id: "all", label: "All" },
@@ -34,11 +33,6 @@ const FILTERS = [
   { id: "rejected", label: "Rejected" },
   { id: "cancelled", label: "Cancelled" },
 ];
-
-function buildMediaUrl(url = "") {
-  if (!url) return "";
-  return url.startsWith("http") ? url : `${MEDIA_BASE_URL}${url}`;
-}
 
 function formatCurrency(value) {
   return `PKR ${Number(value || 0).toLocaleString()}`;

@@ -1,6 +1,7 @@
 import express from 'express';
 import { protect, admin } from '../middleware/authMiddleware.js';
 import upload from '../middleware/uploadMiddleware.js';
+import { persistRequestUpload } from '../utils/mediaStorage.js';
 import {
   getBillboards,
   createBillboard,
@@ -46,8 +47,8 @@ router.get('/stats', getDashboardStats);
 router.get('/revenue-trend', getRevenueTrend);
 
 // Billboards
-router.route('/billboards').get(getBillboards).post(upload.single('image'), createBillboard);
-router.route('/billboards/:id').put(upload.single('image'), updateBillboard).delete(deleteBillboard);
+router.route('/billboards').get(getBillboards).post(upload.single('image'), persistRequestUpload('billboards'), createBillboard);
+router.route('/billboards/:id').put(upload.single('image'), persistRequestUpload('billboards'), updateBillboard).delete(deleteBillboard);
 
 // Ads
 router.get('/ads', getAllAds);

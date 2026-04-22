@@ -230,7 +230,7 @@ export const getBillboards = async (req, res) => {
 export const createBillboard = async (req, res) => {
   const data = { ...req.body, createdBy: req.user._id };
   if (req.file) {
-    data.imageUrl = `/uploads/billboards/${req.file.filename}`;
+    data.imageUrl = req.file.storageUrl || `/uploads/billboards/${req.file.filename}`;
   }
 
   if (data.pricePerHour && !data.pricePerMinute) {
@@ -257,7 +257,7 @@ export const updateBillboard = async (req, res) => {
   
   const data = { ...req.body };
   if (req.file) {
-    data.imageUrl = `/uploads/billboards/${req.file.filename}`;
+    data.imageUrl = req.file.storageUrl || `/uploads/billboards/${req.file.filename}`;
   }
 
   if (data.pricePerHour && !data.pricePerMinute) {

@@ -267,7 +267,7 @@ export const getAlerts = async (req, res) => {
 export const uploadAd = async (req, res) => {
   const { title, description, duration } = req.body;
   if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
-  const mediaUrl = `/uploads/ads/${req.file.filename}`;
+  const mediaUrl = req.file.storageUrl || `/uploads/ads/${req.file.filename}`;
   const mediaType = req.file.mimetype.startsWith('image/') ? 'image' : 'video';
   const ad = await Ad.create({
     title,
@@ -290,7 +290,7 @@ export const updateAd = async (req, res) => {
   let updateData = { title, description, duration };
 
   if (req.file) {
-    const mediaUrl = `/uploads/ads/${req.file.filename}`;
+    const mediaUrl = req.file.storageUrl || `/uploads/ads/${req.file.filename}`;
     const mediaType = req.file.mimetype.startsWith('image/') ? 'image' : 'video';
     updateData.mediaUrl = mediaUrl;
     updateData.mediaType = mediaType;
@@ -551,7 +551,7 @@ export const submitManualPayment = async (req, res) => {
       String(booking.gatewayMeta?.manualPayment?.paymentReference || booking.gatewayReference || '').trim();
     const paymentReference = issuedPaymentReference || `MANUAL-${Date.now()}`;
     const customer = await User.findById(req.user._id).select('name email phone');
-    const proofUrl = `/uploads/payment-proofs/${req.file.filename}`;
+    const proofUrl = req.file.storageUrl || `/uploads/payment-proofs/${req.file.filename}`;
     const methodLabel = getManualPaymentMethodLabel(normalizedMethod);
     const submittedAt = new Date();
 

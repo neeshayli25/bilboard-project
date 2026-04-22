@@ -30,6 +30,7 @@ import {
   confirmPayment,
 } from '../controllers/advertiserController.js';
 import upload from '../middleware/uploadMiddleware.js';
+import { persistRequestUpload } from '../utils/mediaStorage.js';
 
 const router = express.Router();
 router.use(protect);
@@ -44,8 +45,8 @@ router.get('/recent-activities', getRecentActivities);
 router.get('/alerts', getAlerts);
 
 // Ad upload & update
-router.post('/upload-ad', upload.single('media'), uploadAd);
-router.put('/my-ads/:id', upload.single('media'), updateAd);
+router.post('/upload-ad', upload.single('media'), persistRequestUpload('ads'), uploadAd);
+router.put('/my-ads/:id', upload.single('media'), persistRequestUpload('ads'), updateAd);
 
 // Billboard selection
 router.get('/cities', getCities);
@@ -64,7 +65,7 @@ router.get('/my-ads', getMyAds);
 // Payments & Invoices
 router.get('/payments', getPayments);
 router.get('/invoices', getInvoices);
-router.post('/submit-payment', upload.single('paymentProof'), submitManualPayment);
+router.post('/submit-payment', upload.single('paymentProof'), persistRequestUpload('payment-proofs'), submitManualPayment);
 router.post('/create-payment-intent', createPaymentIntent);
 router.post('/confirm-payment', confirmPayment);
 

@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import errorHandler from './middleware/errorMiddleware.js';
 import bcrypt from 'bcryptjs';
 import User from './models/User.js';
+import { streamStoredMedia } from './utils/mediaStorage.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,6 +23,8 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.get('/uploads/:folder/:filename', streamStoredMedia);
+app.head('/uploads/:folder/:filename', streamStoredMedia);
 
 app.get('/', (req, res) => {
   res.send('API Running 🚀');

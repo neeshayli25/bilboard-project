@@ -922,7 +922,7 @@ export const prepareBookingCheckout = async (req, res) => {
       description: adDescription,
       duration: Number(adDuration) || 30,
       advertiser: req.user._id,
-      mediaUrl: `/uploads/ads/${req.file.filename}`,
+      mediaUrl: req.file.storageUrl || `/uploads/ads/${req.file.filename}`,
       mediaType,
       approvalStatus: 'pending',
     });

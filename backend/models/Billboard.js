@@ -1,5 +1,28 @@
 import mongoose from 'mongoose';
 
+const displayConfigSchema = new mongoose.Schema(
+  {
+    enabled: { type: Boolean, default: true },
+    deviceLabel: { type: String, default: '' },
+    deviceToken: { type: String, default: '' },
+    screenCode: { type: String, default: '' },
+    lastHeartbeatAt: { type: Date, default: null },
+    lastPayloadAt: { type: Date, default: null },
+    lastPlaybackState: { type: String, default: 'offline' },
+    lastNowPlayingTitle: { type: String, default: '' },
+    lastBookingId: { type: mongoose.Schema.Types.ObjectId, ref: 'Booking', default: null },
+    lastKnownIp: { type: String, default: '' },
+    lastKnownUserAgent: { type: String, default: '' },
+    browserConnected: { type: Boolean, default: false },
+    arduinoConnected: { type: Boolean, default: false },
+    serialMode: { type: String, default: 'none' },
+    hardwareNotes: { type: String, default: '' },
+    manualOverrideExpiresAt: { type: Date, default: null },
+    manualOverridePayload: { type: mongoose.Schema.Types.Mixed, default: null },
+  },
+  { _id: false }
+);
+
 const billboardSchema = new mongoose.Schema({
   name: { type: String, required: true },
   city: { type: String, required: true },
@@ -8,12 +31,12 @@ const billboardSchema = new mongoose.Schema({
   type: { type: String, default: 'Digital LED' },
   resolution: { type: String, default: '1920x1080' },
   pricePerHour: { type: Number, required: true },
+  pricePerMinute: { type: Number, default: null },
   status: { type: String, enum: ['active', 'offline', 'maintenance'], default: 'active' },
   imageUrl: { type: String, default: '' },
   timeSlots: [{ type: String }],
-  easypaisaNumber: { type: String, required: true }, 
-  // ... existing fields
-createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },// Admin's Easypaisa account
+  displayConfig: { type: displayConfigSchema, default: () => ({}) },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
 }, { timestamps: true });
 
 export default mongoose.model('Billboard', billboardSchema);

@@ -1,5 +1,7 @@
 import express from 'express';
 import { protect, admin } from '../middleware/authMiddleware.js';
+import upload from '../middleware/uploadMiddleware.js';
+import { persistRequestUpload } from '../utils/mediaStorage.js';
 import {
   getBillboards,
   createBillboard,
@@ -20,6 +22,8 @@ import {
   deactivateUser,
   activateUser,
   updateUserRole,
+  getPaymentSettings,
+  updatePaymentSettings,
   getNotifications,
   markNotificationRead,
   markAllNotificationsRead,
@@ -31,6 +35,8 @@ import {
   getPendingBookings,
   approveBooking,
   rejectBooking,
+  confirmBookingPayment,
+  rejectBookingPayment,
 } from '../controllers/adminController.js';
 
 const router = express.Router();
@@ -41,8 +47,8 @@ router.get('/stats', getDashboardStats);
 router.get('/revenue-trend', getRevenueTrend);
 
 // Billboards
-router.route('/billboards').get(getBillboards).post(createBillboard);
-router.route('/billboards/:id').put(updateBillboard).delete(deleteBillboard);
+router.route('/billboards').get(getBillboards).post(upload.single('image'), persistRequestUpload('billboards'), createBillboard);
+router.route('/billboards/:id').put(upload.single('image'), persistRequestUpload('billboards'), updateBillboard).delete(deleteBillboard);
 
 // Ads
 router.get('/ads', getAllAds);
@@ -57,10 +63,16 @@ router.put('/bookings/:id/status', updateBookingStatus);
 router.get('/bookings/pending', getPendingBookings);
 router.put('/bookings/:id/approve', approveBooking);
 router.put('/bookings/:id/reject', rejectBooking);
+router.put('/bookings/:id/confirm-payment', confirmBookingPayment);
+router.put('/bookings/:id/reject-payment', rejectBookingPayment);
 
 // Transactions
 router.get('/transactions', getTransactions);
 router.put('/transactions/:id', updateTransactionStatus);
+
+// Payment settings
+router.get('/payment-settings', getPaymentSettings);
+router.put('/payment-settings', updatePaymentSettings);
 
 // Users
 router.get('/users', getUsers);

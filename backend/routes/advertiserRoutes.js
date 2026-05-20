@@ -16,6 +16,8 @@ import {
   getBillboardAvailability,
   createBooking,
   getMyBookings,
+  cancelBooking,
+  displayMyBooking,
   getMyAds,
   getPayments,
   getInvoices,
@@ -25,8 +27,11 @@ import {
   markAllNotificationsRead,
   clearNotifications,
   submitManualPayment,
+  createPaymentIntent,
+  confirmPayment,
 } from '../controllers/advertiserController.js';
 import upload from '../middleware/uploadMiddleware.js';
+import { persistRequestUpload } from '../utils/mediaStorage.js';
 
 const router = express.Router();
 router.use(protect);
@@ -41,8 +46,8 @@ router.get('/recent-activities', getRecentActivities);
 router.get('/alerts', getAlerts);
 
 // Ad upload & update
-router.post('/upload-ad', upload.single('media'), uploadAd);
-router.put('/my-ads/:id', upload.single('media'), updateAd);
+router.post('/upload-ad', upload.single('media'), persistRequestUpload('ads'), uploadAd);
+router.put('/my-ads/:id', upload.single('media'), persistRequestUpload('ads'), updateAd);
 
 // Billboard selection
 router.get('/cities', getCities);
@@ -53,6 +58,8 @@ router.get('/billboard/:id/availability', getBillboardAvailability);
 // Bookings
 router.post('/bookings', createBooking);
 router.get('/my-bookings', getMyBookings);
+router.put('/bookings/:id/cancel', cancelBooking);
+router.post('/bookings/:id/display', displayMyBooking);
 
 // Ads
 router.get('/my-ads', getMyAds);
@@ -60,7 +67,9 @@ router.get('/my-ads', getMyAds);
 // Payments & Invoices
 router.get('/payments', getPayments);
 router.get('/invoices', getInvoices);
-router.post('/submit-payment', protect, submitManualPayment);
+router.post('/submit-payment', upload.single('paymentProof'), persistRequestUpload('payment-proofs'), submitManualPayment);
+router.post('/create-payment-intent', createPaymentIntent);
+router.post('/confirm-payment', confirmPayment);
 
 // Reports
 router.get('/reports', getReports);

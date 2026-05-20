@@ -6,11 +6,158 @@ import Invoice from '../models/Invoice.js';
 import Notification from '../models/Notification.js';
 import User from '../models/User.js';
 import Stripe from 'stripe';
+import {
+  bookingBlocksAvailability,
+  calculateBookingAmount,
+  doSlotsOverlap,
+  extractDatePrefixFromSlot,
+  extractTimeRangeFromSlot,
+  getRatePerMinute,
+  normalizeBillboardPricing,
+  parseDateOnly,
+} from '../utils/bookingUtils.js';
+import {
+  expireStaleManualPaymentBookings,
+  getManualPaymentMethodLabel,
+  isManualPaymentExpired,
+  normalizeManualPaymentMethod,
+} from '../utils/manualPaymentUtils.js';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const hasUsableStripeSecret = (key = '') =>
+  Boolean(key && key.startsWith('sk_') && !key.includes('...') && !key.toLowerCase().includes('stripe dashboard'));
+
+const stripe = hasUsableStripeSecret(process.env.STRIPE_SECRET_KEY)
+  ? new Stripe(process.env.STRIPE_SECRET_KEY)
+  : null;
 
 // Helper: get current advertiser ID from req.user
 const getAdvertiserId = (req) => req.user._id;
+const createInvoiceNumber = () => `INV-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+const getOccupiedSlotMessage = (booking) => {
+  if (!booking) return 'This window is not available.';
+  if (booking.status === 'active') return 'Currently an ad is already running there. Not available.';
+  if (booking.status === 'scheduled') return 'Another ad is already scheduled there. Not available.';
+  if (booking.status === 'approved') return 'This slot is reserved and waiting for payment confirmation. Not available.';
+  return 'Another booking request already exists for this window. Not available.';
+};
+
+const upsertBillingRecords = async ({
+  booking,
+  advertiserId,
+  amount,
+  method,
+  gateway,
+  paymentReference = '',
+  gatewayTransactionId = '',
+  gatewayMeta = {},
+  customerName = '',
+  customerEmail = '',
+  customerPhone = '',
+}) => {
+  const existingTransaction = await Transaction.findOne({ booking: booking._id }).sort({ createdAt: -1 });
+  const existingInvoice = await Invoice.findOne({ booking: booking._id, advertiser: advertiserId });
+  const invoiceNumber = existingTransaction?.invoiceNumber || existingInvoice?.invoiceNumber || createInvoiceNumber();
+
+  let transaction = existingTransaction;
+  if (transaction) {
+    transaction.amount = amount;
+    transaction.method = method;
+    transaction.gateway = gateway;
+    transaction.status = 'completed';
+    transaction.invoiceNumber = invoiceNumber;
+    transaction.customerName = customerName;
+    transaction.customerEmail = customerEmail;
+    transaction.customerPhone = customerPhone;
+    transaction.gatewayReference = paymentReference;
+    transaction.gatewayTransactionId = gatewayTransactionId;
+    transaction.gatewayMeta = { ...(transaction.gatewayMeta || {}), ...(gatewayMeta || {}) };
+    if (method === 'stripe') {
+      transaction.stripePaymentIntentId = gatewayTransactionId;
+    }
+    await transaction.save();
+  } else {
+    transaction = await Transaction.create({
+      booking: booking._id,
+      advertiser: advertiserId,
+      amount,
+      method,
+      gateway,
+      status: 'completed',
+      invoiceNumber,
+      customerName,
+      customerEmail,
+      customerPhone,
+      gatewayReference: paymentReference,
+      gatewayTransactionId,
+      gatewayMeta,
+      stripePaymentIntentId: method === 'stripe' ? gatewayTransactionId : '',
+    });
+  }
+
+  let invoice = existingInvoice;
+  if (invoice) {
+    invoice.amount = amount;
+    invoice.invoiceNumber = invoiceNumber;
+    invoice.status = 'paid';
+    await invoice.save();
+  } else {
+    invoice = await Invoice.create({
+      invoiceNumber,
+      booking: booking._id,
+      advertiser: advertiserId,
+      amount,
+      status: 'paid',
+    });
+  }
+
+  return { transaction, invoice };
+};
+
+const upsertPendingManualTransaction = async ({
+  booking,
+  advertiserId,
+  amount,
+  method,
+  paymentReference = '',
+  gatewayTransactionId = '',
+  gatewayMeta = {},
+  customerName = '',
+  customerEmail = '',
+  customerPhone = '',
+}) => {
+  const transaction = await Transaction.findOne({ booking: booking._id }).sort({ createdAt: -1 });
+  if (transaction && transaction.status !== 'completed') {
+    transaction.amount = amount;
+    transaction.method = method;
+    transaction.gateway = 'manual';
+    transaction.status = 'pending';
+    transaction.customerName = customerName;
+    transaction.customerEmail = customerEmail;
+    transaction.customerPhone = customerPhone;
+    transaction.gatewayReference = paymentReference;
+    transaction.gatewayTransactionId = gatewayTransactionId || paymentReference;
+    transaction.gatewayMeta = { ...(transaction.gatewayMeta || {}), ...(gatewayMeta || {}) };
+    await transaction.save();
+    return transaction;
+  }
+
+  return Transaction.create({
+    booking: booking._id,
+    advertiser: advertiserId,
+    amount,
+    method,
+    gateway: 'manual',
+    status: 'pending',
+    invoiceNumber: createInvoiceNumber(),
+    customerName,
+    customerEmail,
+    customerPhone,
+    gatewayReference: paymentReference,
+    gatewayTransactionId: gatewayTransactionId || paymentReference,
+    gatewayMeta,
+  });
+};
 
 function formatRelativeTime(date) {
   const diff = Math.floor((new Date() - new Date(date)) / 1000);
@@ -20,11 +167,16 @@ function formatRelativeTime(date) {
   return `${Math.floor(diff / 86400)} days ago`;
 }
 
+const toBillboardPayload = (billboard) =>
+  normalizeBillboardPricing(billboard?.toObject ? billboard.toObject() : billboard);
+
 // ---------- Dashboard ----------
 export const getDashboardStats = async (req, res) => {
+  await expireStaleManualPaymentBookings();
   const advertiserId = getAdvertiserId(req);
   const totalAdsRunning = await Ad.countDocuments({ advertiser: advertiserId, approvalStatus: 'approved' });
-  const activeCampaigns = await Booking.countDocuments({ advertiser: advertiserId, status: { $in: ['confirmed', 'approved'] } });
+  const totalAds = await Ad.countDocuments({ advertiser: advertiserId });
+  const activeCampaigns = await Booking.countDocuments({ advertiser: advertiserId, status: { $in: ['scheduled', 'active'] } });
   const totalSpend = await Transaction.aggregate([
     { $match: { advertiser: advertiserId, status: 'completed' } },
     { $group: { _id: null, total: { $sum: '$amount' } } }
@@ -33,10 +185,17 @@ export const getDashboardStats = async (req, res) => {
     { $match: { advertiser: advertiserId } },
     { $group: { _id: null, total: { $sum: '$impressions' } } }
   ]);
-  const pendingApprovals = await Ad.countDocuments({ advertiser: advertiserId, approvalStatus: 'pending' });
+  const pendingApprovals = await Booking.countDocuments({
+    advertiser: advertiserId,
+    $or: [
+      { status: 'pending' },
+      { status: 'approved', paymentStatus: { $in: ['pending', 'submitted', 'failed'] } },
+    ],
+  });
   const remainingBudget = 50000 - (totalSpend[0]?.total || 0);
 
   res.json({
+    totalAds,
     totalAdsRunning,
     activeCampaigns,
     totalSpend: totalSpend[0]?.total || 0,
@@ -74,14 +233,14 @@ export const getTopAds = async (req, res) => {
 };
 
 export const getAdPlacements = async (req, res) => {
-  const bookings = await Booking.find({ advertiser: getAdvertiserId(req), status: 'approved' })
+  const bookings = await Booking.find({ advertiser: getAdvertiserId(req), status: { $in: ['scheduled', 'active'] } })
     .populate('ad', 'title')
     .populate('billboard', 'name city');
   const placements = bookings.map(b => ({
     ad: b.ad?.title,
     billboard: b.billboard?.name,
     location: b.billboard?.city,
-    status: 'active',
+    status: b.status,
   }));
   res.json(placements);
 };
@@ -113,7 +272,7 @@ export const getAlerts = async (req, res) => {
 export const uploadAd = async (req, res) => {
   const { title, description, duration } = req.body;
   if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
-  const mediaUrl = `/uploads/ads/${req.file.filename}`;
+  const mediaUrl = req.file.storageUrl || `/uploads/ads/${req.file.filename}`;
   const mediaType = req.file.mimetype.startsWith('image/') ? 'image' : 'video';
   const ad = await Ad.create({
     title,
@@ -124,25 +283,19 @@ export const uploadAd = async (req, res) => {
     approvalStatus: 'pending',
     duration: duration || 30,
   });
-  const adminUsers = await User.find({ role: 'admin' }).select('_id');
-  for (const admin of adminUsers) {
-    await Notification.create({
-      user: admin._id,
-      title: 'New Ad Pending',
-      message: `Ad "${title}" needs approval.`,
-    });
-  }
+  
+  // Notification loop removed per user request: Ad notifications happen strictly on booking now.
   res.status(201).json(ad);
 };
 
-// ---------- Update Ad (edit) – notify only the billboard owner ----------
+// ---------- Update Ad (edit) - notify only the billboard owner ----------
 export const updateAd = async (req, res) => {
   const { id } = req.params;
   const { title, description, duration } = req.body;
   let updateData = { title, description, duration };
 
   if (req.file) {
-    const mediaUrl = `/uploads/ads/${req.file.filename}`;
+    const mediaUrl = req.file.storageUrl || `/uploads/ads/${req.file.filename}`;
     const mediaType = req.file.mimetype.startsWith('image/') ? 'image' : 'video';
     updateData.mediaUrl = mediaUrl;
     updateData.mediaType = mediaType;
@@ -193,140 +346,409 @@ export const getBillboardsByCity = async (req, res) => {
   const { city } = req.query;
   const billboards = await Billboard.find({ city, status: 'active' })
     .populate('createdBy', 'name easypaisaNumber');
-  res.json(billboards);
+  res.json(billboards.map(toBillboardPayload));
 };
 
 export const getAllBillboards = async (req, res) => {
   const billboards = await Billboard.find({ status: 'active' })
     .populate('createdBy', 'name easypaisaNumber');
-  res.json(billboards);
+  res.json(billboards.map(toBillboardPayload));
 };
 
 export const getBillboardAvailability = async (req, res) => {
+  await expireStaleManualPaymentBookings();
   const { id } = req.params;
   const { date } = req.query;
   const billboard = await Billboard.findById(id);
   if (!billboard) return res.status(404).json({ message: 'Billboard not found' });
-  const bookedSlots = await Booking.find({
+  const bookingDate = parseDateOnly(date);
+  if (!bookingDate) {
+    return res.status(400).json({ message: 'Valid date is required.' });
+  }
+  const bookedSlotsRaw = await Booking.find({
     billboard: id,
-    date: new Date(date),
-    status: { $nin: ['cancelled', 'rejected'] }
+    date: bookingDate,
   });
-  const availableSlots = billboard.timeSlots.filter(slot => !bookedSlots.some(b => b.timeSlot === slot));
-  res.json({ availableSlots, pricePerHour: billboard.pricePerHour });
+
+  const activeBookings = bookedSlotsRaw.filter((booking) => bookingBlocksAvailability(booking));
+  const bookedSlots = activeBookings.map((booking) => booking.timeSlot);
+  const occupiedSlots = activeBookings.map((booking) => ({
+    bookingId: booking._id,
+    timeSlot: booking.timeSlot,
+    status: booking.status,
+    paymentStatus: booking.paymentStatus,
+    message: getOccupiedSlotMessage(booking),
+  }));
+
+  const requestedDateKey = String(date || '').trim();
+  const configuredSlots = (billboard.timeSlots || [])
+    .filter((slot) => extractDatePrefixFromSlot(slot) === requestedDateKey)
+    .map((slot) => extractTimeRangeFromSlot(slot));
+
+  const availableSlots = configuredSlots.filter(
+    (slot) => !bookedSlots.some((bookedSlot) => doSlotsOverlap(slot, bookedSlot))
+  );
+
+  let statusMessage = 'Select one of the free windows below.';
+  if (!configuredSlots.length) {
+    statusMessage = 'No billboard availability has been configured for this date yet.';
+  } else if (!availableSlots.length && occupiedSlots.length) {
+    statusMessage = 'Currently an ad is already running or reserved there. This billboard is not available for the selected date.';
+  } else if (!availableSlots.length) {
+    statusMessage = 'No free windows were found for this date.';
+  }
+
+  res.json({
+    configuredSlots,
+    availableSlots,
+    bookedSlots,
+    occupiedSlots,
+    statusMessage,
+    isFullyBooked: Boolean(configuredSlots.length && !availableSlots.length && occupiedSlots.length),
+    pricePerHour: getRatePerMinute(billboard),
+    pricePerMinute: getRatePerMinute(billboard),
+  });
 };
 
 // ---------- Booking Creation (notify only billboard owner) ----------
 export const createBooking = async (req, res) => {
-  const { adId, billboardId, date, timeSlot, totalPrice } = req.body;
-  const ad = await Ad.findOne({ _id: adId, advertiser: req.user._id });
-  if (!ad) return res.status(404).json({ message: 'Ad not found or not owned by you' });
-  const existing = await Booking.findOne({
-    billboard: billboardId,
-    date: new Date(date),
+  await expireStaleManualPaymentBookings();
+  const {
+    adId,
+    billboardId,
+    date,
     timeSlot,
-    status: { $nin: ['cancelled', 'rejected'] }
+    totalPrice,
+    customerName = '',
+    customerEmail = '',
+    customerPhone = '',
+  } = req.body;
+
+  if (!billboardId || !date || !timeSlot || !totalPrice) {
+    return res.status(400).json({ message: 'billboardId, date, timeSlot, and totalPrice are required.' });
+  }
+
+  if (!adId) {
+    return res.status(400).json({ message: 'Please select an uploaded ad before sending the booking request.' });
+  }
+
+  const advertiser = await User.findById(req.user._id).select('name email phone');
+  const ad = await Ad.findOne({ _id: adId, advertiser: req.user._id });
+  if (!ad) {
+    return res.status(404).json({ message: 'Ad not found or not owned by you.' });
+  }
+  if (ad.approvalStatus === 'rejected') {
+    return res.status(400).json({ message: 'This ad was rejected earlier. Please upload or choose another ad.' });
+  }
+
+  const billboard = await Billboard.findById(billboardId);
+  if (!billboard) {
+    return res.status(404).json({ message: 'Billboard not found.' });
+  }
+
+  const bookingDate = parseDateOnly(date);
+  if (!bookingDate) {
+    return res.status(400).json({ message: 'A valid booking date is required.' });
+  }
+
+  const existingBookings = await Booking.find({
+    billboard: billboardId,
+    date: bookingDate,
   });
-  if (existing) return res.status(409).json({ message: 'Slot already booked' });
+  const overlappingBooking = existingBookings.find(
+    (booking) => bookingBlocksAvailability(booking) && doSlotsOverlap(booking.timeSlot, timeSlot)
+  );
+  if (overlappingBooking) return res.status(409).json({ message: 'Slot already booked' });
+
+  const [startTime = '', endTime = ''] = String(timeSlot || '')
+    .split('-')
+    .map((value) => value.trim());
+  const pricing = calculateBookingAmount({ billboard, startTime, endTime });
+  const submittedAmount = Number(totalPrice) || 0;
+
+  if (Math.abs(pricing.totalPrice - submittedAmount) > 0.01) {
+    return res.status(400).json({
+      message: `Pricing mismatch detected. Expected PKR ${pricing.totalPrice.toFixed(2)} for this slot.`,
+    });
+  }
+
   const booking = await Booking.create({
     advertiser: req.user._id,
     ad: adId,
     billboard: billboardId,
-    date: new Date(date),
+    date: bookingDate,
     timeSlot,
+    durationMinutes: pricing.durationMinutes,
+    ratePerMinute: pricing.ratePerMinute,
     totalPrice,
     status: 'pending',
     paymentStatus: 'pending',
+    paymentMethod: 'bank_transfer',
+    customerName: customerName || advertiser?.name || '',
+    customerEmail: customerEmail || advertiser?.email || '',
+    customerPhone: customerPhone || advertiser?.phone || '',
+    paymentGateway: 'manual',
+    checkoutExpiresAt: null,
   });
-  const billboard = await Billboard.findById(billboardId);
+
   if (billboard && billboard.createdBy) {
     await Notification.create({
       user: billboard.createdBy,
       title: 'New Booking Request',
-      message: `Booking #${booking._id} for ${new Date(date).toLocaleDateString()} at ${timeSlot} requires approval.`,
+      message: `${advertiser?.name || 'An advertiser'} requested ${billboard.name} for ${bookingDate.toLocaleDateString()} at ${timeSlot}. Review the request before payment is collected.`,
       type: 'booking',
+      relatedId: booking._id,
     });
   }
-  res.status(201).json(booking);
+  res.status(201).json({
+    booking,
+    message: 'Booking request created. Your admin will review it before you proceed to payment.',
+  });
 };
 
 // ---------- Stripe Payment (kept for reference) ----------
 export const createPaymentIntent = async (req, res) => {
-  const { amount, currency = 'pkr' } = req.body;
-  try {
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount * 100),
-      currency: 'pkr',
-      metadata: { advertiserId: req.user._id.toString() },
-    });
-    res.json({ clientSecret: paymentIntent.client_secret });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  res.status(410).json({
+    message: 'Direct gateway checkout has been retired for this project. Use the manual payment proof flow from My Bookings.',
+  });
 };
 
 export const submitManualPayment = async (req, res) => {
-  const { bookingId, transactionId } = req.body;
+  const {
+    bookingId,
+    paymentMethod = 'bank_transfer',
+    transactionId = '',
+    senderAccount = '',
+    notes = '',
+  } = req.body;
+
   try {
-    const booking = await Booking.findById(bookingId);
+    await expireStaleManualPaymentBookings();
+    const booking = await Booking.findById(bookingId).populate('billboard', 'name createdBy');
     if (!booking) return res.status(404).json({ message: 'Booking not found' });
     if (booking.advertiser.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: 'Not authorized' });
     }
-    if (booking.paymentStatus !== 'pending') {
-      return res.status(400).json({ message: 'Payment already submitted' });
+    if (booking.status !== 'approved') {
+      return res.status(400).json({ message: 'This booking is not ready for payment yet. Wait for admin approval first.' });
     }
-    booking.paymentStatus = 'submitted';
-    booking.paymentProof = transactionId || `Manual payment on ${new Date().toISOString()}`;
-    await booking.save();
-    const billboard = await Billboard.findById(booking.billboard);
-    if (billboard && billboard.createdBy) {
-      await Notification.create({
-        user: billboard.createdBy,
-        title: 'Payment Submitted',
-        message: `Booking #${booking._id} payment submitted. Awaiting verification.`,
-        type: 'payment',
+    if (booking.paymentStatus === 'paid' || booking.status === 'scheduled' || booking.status === 'active') {
+      return res.status(400).json({ message: 'Payment has already been completed for this booking.' });
+    }
+    if (isManualPaymentExpired(booking)) {
+      return res.status(400).json({
+        message: 'The payment time for this booking has expired. Please create the booking again.',
       });
     }
-    res.json({ success: true, message: 'Payment submitted, waiting for admin verification.' });
+    if (!req.file) {
+      return res.status(400).json({ message: 'Please upload the payment screenshot before submitting.' });
+    }
+
+    const normalizedMethod = normalizeManualPaymentMethod(paymentMethod);
+    const customerTransactionId = String(transactionId || '').trim();
+    if (!customerTransactionId) {
+      return res.status(400).json({
+        message: 'Enter the Easypaisa transaction/reference ID from your payment receipt before submitting proof.',
+      });
+    }
+
+    const issuedPaymentReference =
+      String(booking.gatewayMeta?.manualPayment?.paymentReference || booking.gatewayReference || '').trim();
+    const paymentReference = issuedPaymentReference || `MANUAL-${Date.now()}`;
+    const customer = await User.findById(req.user._id).select('name email phone');
+    const proofUrl = req.file.storageUrl || `/uploads/payment-proofs/${req.file.filename}`;
+    const methodLabel = getManualPaymentMethodLabel(normalizedMethod);
+    const submittedAt = new Date();
+
+    booking.paymentStatus = 'submitted';
+    booking.status = 'approved';
+    booking.paymentMethod = normalizedMethod;
+    booking.paymentGateway = 'manual';
+    booking.paymentProof = proofUrl;
+    booking.gatewayReference = paymentReference;
+    booking.gatewayTransactionId = customerTransactionId;
+    booking.paymentCapturedAt = null;
+    booking.adminReviewNote = 'Payment proof submitted. Waiting for admin verification.';
+    booking.gatewayMeta = {
+      ...(booking.gatewayMeta || {}),
+      manualPayment: {
+        ...(booking.gatewayMeta?.manualPayment || {}),
+        senderAccount: String(senderAccount || '').trim(),
+        issuedReference: paymentReference,
+        paymentReference,
+        customerTransactionId,
+        notes: String(notes || '').trim(),
+        proofUrl,
+        submittedAt: submittedAt.toISOString(),
+        submittedMethod: normalizedMethod,
+      },
+    };
+    await booking.save();
+
+    const transaction = await upsertPendingManualTransaction({
+      booking,
+      advertiserId: req.user._id,
+      amount: Number(booking.totalPrice) || 0,
+      method: normalizedMethod,
+      paymentReference,
+      gatewayTransactionId: customerTransactionId,
+      gatewayMeta: booking.gatewayMeta,
+      customerName: booking.customerName || customer?.name || '',
+      customerEmail: booking.customerEmail || customer?.email || '',
+      customerPhone: booking.customerPhone || customer?.phone || '',
+    });
+
+    if (booking.billboard?.createdBy) {
+      await Notification.create({
+        user: booking.billboard.createdBy,
+        title: 'Payment Proof Submitted',
+        message: `${customer?.name || 'An advertiser'} uploaded ${methodLabel} payment proof for ${booking.billboard?.name || 'the billboard'}. Review it to confirm the booking.`,
+        type: 'payment',
+        relatedId: booking._id,
+      });
+    }
+
+    await Notification.create({
+      user: booking.advertiser,
+      title: 'Payment Proof Sent',
+      message: `Your ${methodLabel} screenshot was uploaded successfully. The admin will verify it before the booking is scheduled.`,
+      type: 'payment',
+      relatedId: booking._id,
+    });
+
+    res.json({
+      success: true,
+      message: 'Payment proof submitted. The booking will move to scheduled after admin confirmation.',
+      booking,
+      transaction,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
 
 export const confirmPayment = async (req, res) => {
-  const { bookingId, paymentIntentId, paymentMethod } = req.body;
-  try {
-    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
-    if (paymentIntent.status !== 'succeeded') {
-      return res.status(400).json({ message: 'Payment not successful' });
-    }
-    const transaction = await Transaction.create({
-      booking: bookingId,
-      advertiser: req.user._id,
-      amount: paymentIntent.amount / 100,
-      method: 'stripe',
-      status: 'completed',
-      invoiceNumber: `INV-${Date.now()}`,
-    });
-    await Booking.findByIdAndUpdate(bookingId, { paymentStatus: 'paid' });
-    await Invoice.create({
-      invoiceNumber: transaction.invoiceNumber,
-      booking: bookingId,
-      advertiser: req.user._id,
-      amount: paymentIntent.amount / 100,
-      status: 'paid',
-    });
-    res.json({ success: true, transaction });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  res.status(410).json({
+    message: 'Direct gateway confirmation is no longer used. Upload manual payment proof from My Bookings instead.',
+  });
 };
 
 // ---------- My Bookings ----------
 export const getMyBookings = async (req, res) => {
-  const bookings = await Booking.find({ advertiser: req.user._id }).populate('billboard ad');
+  await expireStaleManualPaymentBookings();
+  const bookings = await Booking.find({ advertiser: req.user._id })
+    .populate('billboard ad')
+    .sort({ createdAt: -1 });
   res.json(bookings);
+};
+
+export const cancelBooking = async (req, res) => {
+  await expireStaleManualPaymentBookings();
+
+  const booking = await Booking.findOne({
+    _id: req.params.id,
+    advertiser: req.user._id,
+  }).populate('billboard', 'name createdBy');
+
+  if (!booking) {
+    return res.status(404).json({ message: 'Booking not found.' });
+  }
+
+  if (booking.status === 'cancelled') {
+    return res.json({ booking, message: 'This booking is already cancelled.' });
+  }
+
+  if (['scheduled', 'active', 'completed'].includes(booking.status) || booking.paymentStatus === 'paid') {
+    return res.status(400).json({
+      message: 'Confirmed bookings cannot be cancelled from this screen. Contact the admin for a reschedule or refund review.',
+    });
+  }
+
+  if (booking.paymentStatus === 'submitted') {
+    return res.status(400).json({
+      message: 'Payment proof has already been submitted. Ask the admin to reject or verify it before changing this booking.',
+    });
+  }
+
+  if (!['pending', 'approved'].includes(booking.status)) {
+    return res.status(400).json({ message: 'Only unpaid booking requests can be cancelled.' });
+  }
+
+  const transaction = await Transaction.findOne({ booking: booking._id }).sort({ createdAt: -1 });
+  if (transaction && transaction.status !== 'completed') {
+    transaction.status = 'cancelled';
+    transaction.gatewayMeta = {
+      ...(transaction.gatewayMeta || {}),
+      cancelledAt: new Date().toISOString(),
+      cancelledBy: req.user._id.toString(),
+      cancellationSource: 'advertiser',
+    };
+    await transaction.save();
+  }
+
+  booking.status = 'cancelled';
+  booking.paymentStatus = 'pending';
+  booking.paymentProof = '';
+  booking.checkoutExpiresAt = null;
+  booking.adminReviewNote = 'Cancelled by advertiser before payment confirmation.';
+  booking.gatewayMeta = {
+    ...(booking.gatewayMeta || {}),
+    manualPayment: {
+      ...(booking.gatewayMeta?.manualPayment || {}),
+      cancelledAt: new Date().toISOString(),
+      cancelledBy: req.user._id.toString(),
+      cancellationSource: 'advertiser',
+      lastAction: 'cancelled',
+    },
+  };
+  await booking.save();
+
+  const advertiser = await User.findById(req.user._id).select('name email phone');
+  const notifications = [
+    {
+      user: booking.advertiser,
+      title: 'Booking Cancelled',
+      message: `Your unpaid booking for ${booking.billboard?.name || 'the billboard'} was cancelled before payment confirmation.`,
+      type: 'booking',
+      relatedId: booking._id,
+    },
+  ];
+
+  if (booking.billboard?.createdBy) {
+    notifications.push({
+      user: booking.billboard.createdBy,
+      title: 'Advertiser Cancelled Booking',
+      message: `${advertiser?.name || 'An advertiser'} cancelled an unpaid booking request for ${booking.billboard?.name || 'your billboard'}.`,
+      type: 'booking',
+      relatedId: booking._id,
+    });
+  }
+
+  await Notification.insertMany(notifications, { ordered: false });
+
+  res.json({
+    booking,
+    message: 'Booking cancelled before payment. The slot is available again.',
+  });
+};
+
+export const displayMyBooking = async (req, res) => {
+  try {
+    const { pushBookingToDisplay } = await import('./hardwareController.js');
+    const result = await pushBookingToDisplay({
+      bookingId: req.params.id,
+      actorId: req.user._id,
+      actorMode: 'advertiser',
+      req,
+    });
+
+    return res.status(result.status).json(result.body);
+  } catch (error) {
+    return res.status(500).json({
+      message: 'Could not push this booking to the display right now.',
+      error: error.message,
+    });
+  }
 };
 
 // ---------- My Ads ----------
@@ -337,7 +759,16 @@ export const getMyAds = async (req, res) => {
 
 // ---------- Payments & Invoices ----------
 export const getPayments = async (req, res) => {
-  const transactions = await Transaction.find({ advertiser: req.user._id }).sort({ createdAt: -1 });
+  await expireStaleManualPaymentBookings();
+  const transactions = await Transaction.find({ advertiser: req.user._id })
+    .populate({
+      path: 'booking',
+      populate: [
+        { path: 'billboard', select: 'name city location imageUrl' },
+        { path: 'ad', select: 'title mediaUrl mediaType' },
+      ],
+    })
+    .sort({ createdAt: -1 });
   res.json(transactions);
 };
 

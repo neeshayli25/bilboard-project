@@ -34,8 +34,8 @@ const AdminProfile = () => {
         role: res.data.role,
         lastLoginAt: res.data.lastLoginAt,
       });
-      // Update localStorage for sidebar name
-      localStorage.setItem("adminName", res.data.name);
+      // Update sessionStorage for sidebar name
+      sessionStorage.setItem("adminName", res.data.name);
     } catch (err) {
       setMessage({ text: "Failed to load profile", type: "error" });
     } finally {
@@ -48,8 +48,8 @@ const AdminProfile = () => {
     setMessage({ text: "", type: "" });
     try {
       await updateProfile({ name: profile.name, email: profile.email });
-      // Update localStorage name
-      localStorage.setItem("adminName", profile.name);
+      // Update sessionStorage name
+      sessionStorage.setItem("adminName", profile.name);
       setMessage({ text: "Profile updated successfully!", type: "success" });
       setTimeout(() => setMessage({ text: "", type: "" }), 3000);
     } catch (err) {
@@ -79,8 +79,8 @@ const AdminProfile = () => {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("adminName");
+    sessionStorage.removeItem("token");
+    sessionStorage.removeItem("adminName");
     navigate("/login");
   };
 

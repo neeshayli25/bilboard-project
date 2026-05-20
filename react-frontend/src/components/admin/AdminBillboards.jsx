@@ -1,115 +1,191 @@
 import { useEffect, useState, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Plus, Edit, Trash2, Power, MapPin, Monitor, Calendar, X, Upload, Image as ImageIcon } from "lucide-react";
-import { getBillboards, createBillboard, updateBillboard, deleteBillboard } from "../../services/adminApi";
+import { Plus, Edit, Trash2, Power, MapPin, Monitor, X, Upload, Calendar, Clock, CheckCircle2, AlertCircle, Copy } from "lucide-react";
+import { getBillboards, createBillboard, updateBillboard, deleteBillboard, rotateBillboardDisplayToken } from "../../services/adminApi";
+import { useSettings } from "../../context/SettingsContext";
+import { buildMediaUrl } from "../../utils/media";
 
-const sizeOptions     = ["10ft x 20ft", "14ft x 48ft", "8ft x 16ft", "12ft x 30ft", "Custom"];
-const typeOptions     = ["Digital LED", "LCD", "Static", "Neon"];
-const resolutionOpts  = ["1920x1080", "2560x1440", "3840x2160", "1280x720", "Other"];
-const daysOfWeek      = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-const timeSlotOptions = [
-  { label: "Morning (09:00–12:00)",    value: "09:00-12:00" },
-  { label: "Afternoon (12:00–15:00)",  value: "12:00-15:00" },
-  { label: "Evening (15:00–18:00)",    value: "15:00-18:00" },
-  { label: "Night (18:00–21:00)",      value: "18:00-21:00" },
-  { label: "Late Night (21:00–00:00)", value: "21:00-00:00" },
-];
+const sizeOptions = ["10ft x 20ft", "14ft x 48ft", "8ft x 16ft", "12ft x 30ft", "Custom"];
+const typeOptions = ["Digital LED", "LCD", "Static", "Neon"];
+const resolutionOpts = ["1920x1080", "2560x1440", "3840x2160", "1280x720", "Other"];
 
 const EMPTY_FORM = {
-  name: "", city: "", location: "", size: "", type: "Digital LED",
-  resolution: "1920x1080", pricePerHour: "", status: "active",
-  imageUrl: "", easypaisaNumber: "", timeSlots: []
+  name: "", city: "", location: "", size: sizeOptions[0], type: "Digital LED",
+  resolution: "1920x1080", pricePerMinute: "", status: "active"
 };
 
-const inputStyle = {
-  border: "1px solid #e2e8f0", borderRadius: 10, padding: "10px 14px",
-  fontSize: 14, outline: "none", width: "100%", background: "#fff",
-  transition: "border .15s", boxSizing: "border-box"
-};
+function formatPkr(value) {
+  return `PKR ${Number(value || 0).toLocaleString("en-PK", { maximumFractionDigits: 0 })}`;
+}
+
+// ── Per-date slot structure:
+// dateSlots: { "2026-04-20": ["08:00-09:30", "14:00-16:00"], "2026-04-21": [...] }
 
 export default function AdminBillboards() {
+  const { settings } = useSettings();
+  // Always reads live from settings — no hardcoded fallback
+  const minRate = parseFloat(settings.minBookingPKR) || 0;
+
   const [billboards, setBillboards] = useState([]);
-  const [modalOpen, setModalOpen]   = useState(false);
-  const [editing, setEditing]       = useState(null);
-  const [loading, setLoading]       = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [form, setForm]             = useState(EMPTY_FORM);
-  const [selectedDays, setSelectedDays]   = useState([]);
-  const [selectedSlots, setSelectedSlots] = useState([]);
-  const [imagePreview, setImagePreview]   = useState("");
-  const [imageFile, setImageFile]         = useState(null);
-  const fileRef = useRef();
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [imagePreview, setImagePreview] = useState("");
+  const [imageFile, setImageFile] = useState(null);
+  const [priceError, setPriceError] = useState("");
+  const [copiedId, setCopiedId] = useState("");
+  const [rotatingId, setRotatingId] = useState("");
+
+  // ── Per-date slot state ─────────────────────────────────────────────────────
+  // dateSlots: { [date]: [ "HH:MM-HH:MM", ... ] }
+  const [dateSlots, setDateSlots] = useState({});
+
+  // Current editing row
+  const [activeDate, setActiveDate] = useState("");
+  const [slotStart, setSlotStart]   = useState("");
+  const [slotEnd, setSlotEnd]       = useState("");
+
+  const fileRef = useRef(null);
 
   useEffect(() => { load(); }, []);
 
   const load = async () => {
     setLoading(true);
-    try { const r = await getBillboards(); setBillboards(r.data); }
-    catch (e) { console.error(e); alert("Failed to load billboards"); }
-    finally { setLoading(false); }
+    try {
+      const r = await getBillboards();
+      setBillboards(r.data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
   };
 
+  // When editing opens, reconstruct dateSlots from stored timeSlots array
   useEffect(() => {
-    if (!editing?.timeSlots) { setSelectedDays([]); setSelectedSlots([]); setImagePreview(""); setImageFile(null); return; }
-    const days = new Set(), slots = new Set();
-    editing.timeSlots.forEach(s => { const [d, ...rest] = s.split(" "); days.add(d); slots.add(rest.join(" ")); });
-    setSelectedDays([...days]);
-    setSelectedSlots([...slots]);
-    setImagePreview(editing.imageUrl || "");
+    if (!editing) {
+      setDateSlots({}); setImagePreview(""); setImageFile(null); return;
+    }
+    if (editing.timeSlots?.length > 0) {
+      // stored as "YYYY-MM-DD HH:MM-HH:MM"
+      const rebuilt = {};
+      editing.timeSlots.forEach(s => {
+        const [date, time] = s.split(" ");
+        if (!rebuilt[date]) rebuilt[date] = [];
+        if (time) rebuilt[date].push(time);
+      });
+      setDateSlots(rebuilt);
+    } else {
+      setDateSlots({});
+    }
+    setImagePreview(editing.imageUrl ? buildMediaUrl(editing.imageUrl) : "");
   }, [editing]);
 
-  const toggleDay  = d  => setSelectedDays(p  => p.includes(d)  ? p.filter(x => x !== d)  : [...p, d]);
-  const toggleSlot = sv => setSelectedSlots(p => p.includes(sv) ? p.filter(x => x !== sv) : [...p, sv]);
+  // Flatten dateSlots → flat array for storage
+  const flattenedSlots = () => {
+    const result = [];
+    Object.keys(dateSlots)
+      .sort()
+      .forEach(date => {
+        dateSlots[date].forEach(time => {
+          result.push(`${date} ${time}`);
+        });
+      });
+    return result;
+  };
 
-  const buildSlots = () => selectedDays.flatMap(d => selectedSlots.map(s => `${d} ${s}`));
+  // Add a time slot to the currently selected date
+  const addSlot = () => {
+    if (!activeDate) { alert("Please select a date first."); return; }
+    if (!slotStart || !slotEnd) { alert("Please set both start and end time."); return; }
+    if (slotEnd <= slotStart) { alert("End time must be after start time."); return; }
+    const slotStr = `${slotStart}-${slotEnd}`;
+    setDateSlots(prev => {
+      const existing = prev[activeDate] || [];
+      if (existing.includes(slotStr)) return prev;
+      return { ...prev, [activeDate]: [...existing, slotStr] };
+    });
+    setSlotStart(""); setSlotEnd("");
+  };
+
+  const removeSlot = (date, slotStr) => {
+    setDateSlots(prev => {
+      const updated = (prev[date] || []).filter(s => s !== slotStr);
+      if (updated.length === 0) {
+        const clone = { ...prev };
+        delete clone[date];
+        return clone;
+      }
+      return { ...prev, [date]: updated };
+    });
+  };
+
+  const removeDate = (date) => {
+    setDateSlots(prev => {
+      const clone = { ...prev };
+      delete clone[date];
+      return clone;
+    });
+  };
+
+  // Price validation against settings minimum
+  const handlePriceChange = (val) => {
+    setForm(p => ({ ...p, pricePerMinute: val }));
+    const n = parseFloat(val);
+    if (!isNaN(n) && n < minRate) {
+      setPriceError(`Minimum rate is ${formatPkr(minRate)}/min (set in Settings -> Payment Gateway)`);
+    } else {
+      setPriceError("");
+    }
+  };
 
   const handleImageFile = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      alert("Please select an image file (JPEG, PNG, GIF, WEBP)");
-      return;
-    }
+    if (!file.type.startsWith("image/")) { alert("Please select an image file."); return; }
     setImageFile(file);
     const reader = new FileReader();
     reader.onloadend = () => setImagePreview(reader.result);
     reader.readAsDataURL(file);
-    // For backend: we need to upload the file separately.
-    // For now, we'll store the base64 URL (but can be large).
-    // Better to have an upload endpoint. We'll keep as base64 for simplicity.
-    setForm(f => ({ ...f, imageUrl: reader.result }));
   };
 
   const handleSubmit = async () => {
-    // Validate required fields
-    if (!form.name || !form.city || !form.location || !form.pricePerHour || !form.easypaisaNumber) {
-      alert("Please fill all required fields (Name, City, Location, Price, Easypaisa Number)");
+    if (!form.name || !form.city || !form.location || !form.pricePerMinute) {
+      alert("Please fill all required fields (Name, City, Location, Rate)");
       return;
     }
-    const payload = { ...form, timeSlots: buildSlots() };
-    // If we have a new image file but not yet converted to base64, we need to wait
-    if (imageFile && !payload.imageUrl) {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        payload.imageUrl = reader.result;
-        await submit(payload);
-      };
-      reader.readAsDataURL(imageFile);
+    const price = parseFloat(form.pricePerMinute);
+    if (isNaN(price) || price < minRate) {
+      alert(`Rate must be at least ${formatPkr(minRate)}/minute as set in your platform settings.`);
       return;
     }
-    await submit(payload);
-  };
+    const slots = flattenedSlots();
+    if (slots.length === 0) {
+      alert("Please add at least one date with available time slots.");
+      return;
+    }
 
-  const submit = async (payload) => {
     setSubmitting(true);
+    const formData = new FormData();
+    // Send pricePerHour field for backward compat but label it as per-minute
+    formData.append("pricePerHour", form.pricePerMinute); // stored as pricePerHour in DB
+    formData.append("priceUnit", "per_minute");
+    Object.keys(form).forEach(key => {
+      if (key !== "pricePerMinute") formData.append(key, form[key]);
+    });
+    formData.append("timeSlots", JSON.stringify(slots));
+    if (imageFile) formData.append("image", imageFile);
+
     try {
-      if (editing) await updateBillboard(editing._id, payload);
-      else         await createBillboard(payload);
+      if (editing) await updateBillboard(editing._id, formData);
+      else await createBillboard(formData);
       setModalOpen(false);
       load();
     } catch (e) {
       console.error(e);
-      alert("Failed to save billboard. Check console.");
+      alert("Failed to save billboard.");
     } finally {
       setSubmitting(false);
     }
@@ -117,267 +193,492 @@ export default function AdminBillboards() {
 
   const openCreate = () => {
     setEditing(null); setForm(EMPTY_FORM); setImagePreview(""); setImageFile(null);
-    setSelectedDays([]); setSelectedSlots([]);
+    setDateSlots({}); setActiveDate(""); setSlotStart(""); setSlotEnd("");
+    setPriceError("");
     setModalOpen(true);
   };
 
   const openEdit = (b) => {
-    setEditing(b); setForm(b); setImagePreview(b.imageUrl || ""); setImageFile(null);
+    setEditing(b);
+    setForm({
+      name: b.name, city: b.city, location: b.location, size: b.size,
+      type: b.type, resolution: b.resolution,
+      pricePerMinute: b.pricePerMinute ?? b.pricePerHour,
+      status: b.status
+    });
+    setPriceError("");
+    setActiveDate(""); setSlotStart(""); setSlotEnd("");
     setModalOpen(true);
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Delete this billboard? This action cannot be undone.")) return;
+    if (!window.confirm("Permanently delete this billboard? Any unpaid requests for it will be cancelled first.")) return;
     try {
-      await deleteBillboard(id);
+      const response = await deleteBillboard(id);
+      alert(response.data?.message || "Billboard deleted completely.");
       load();
     } catch (e) {
       console.error(e);
-      alert("Delete failed");
+      alert(e.response?.data?.message || "Delete failed");
     }
   };
 
   const toggleStatus = async (id, cur) => {
     try {
-      await updateBillboard(id, { status: cur === "active" ? "offline" : "active" });
+      const fd = new FormData();
+      fd.append("status", cur === "active" ? "offline" : "active");
+      await updateBillboard(id, fd);
       load();
-    } catch (e) {
-      console.error(e);
-      alert("Status update failed");
+    } catch (e) { console.error(e); }
+  };
+
+  const formatHeartbeat = (value) => {
+    if (!value) return "Never connected";
+    return new Date(value).toLocaleString("en-PK");
+  };
+
+  const getDevicePill = (displayConfig = {}) => {
+    if (displayConfig?.onlineStatus === "online") {
+      return "bg-emerald-500/15 text-emerald-300 border-emerald-500/25";
+    }
+    return "bg-slate-500/15 text-slate-300 border-slate-500/20";
+  };
+
+  const getPiConfig = (billboard) => {
+    const apiBase = import.meta.env.VITE_API_URL || `${window.location.origin}/api`;
+    const token = billboard?.displayConfig?.deviceToken || "";
+    return JSON.stringify(
+      {
+        apiBase,
+        billboardId: billboard._id,
+        deviceToken: token,
+        deviceLabel: billboard.name || "Raspberry Pi Billboard Screen",
+        pollSeconds: 3,
+        requestTimeoutSeconds: 45,
+        debug: false,
+      },
+      null,
+      2
+    );
+  };
+
+  const handleCopyPiConfig = async (billboard) => {
+    try {
+      await navigator.clipboard.writeText(getPiConfig(billboard));
+      setCopiedId(`${billboard._id}:config`);
+      setTimeout(() => setCopiedId(""), 1400);
+    } catch (error) {
+      console.error(error);
+      alert("Could not copy Raspberry Pi config.");
     }
   };
 
+  const handleCopyDeviceToken = async (billboard) => {
+    try {
+      await navigator.clipboard.writeText(billboard?.displayConfig?.deviceToken || "");
+      setCopiedId(`${billboard._id}:token`);
+      setTimeout(() => setCopiedId(""), 1400);
+    } catch (error) {
+      console.error(error);
+      alert("Could not copy screen token.");
+    }
+  };
+
+  const handleRotateDeviceToken = async (billboardId) => {
+    if (!window.confirm("Rotate this screen token? The old display URL will stop working until you copy the new one.")) return;
+    setRotatingId(billboardId);
+    try {
+      await rotateBillboardDisplayToken(billboardId);
+      await load();
+    } catch (error) {
+      console.error(error);
+      alert(error.response?.data?.message || "Could not rotate the display token.");
+    } finally {
+      setRotatingId("");
+    }
+  };
+
+  // ── All dates currently scheduled ────────────────────────────────────────
+  const scheduledDates = Object.keys(dateSlots).sort();
+  const totalSlots = flattenedSlots().length;
+
   return (
-    <div style={{ fontFamily: "inherit" }}>
-      {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28, flexWrap: "wrap", gap: 12 }}>
-        <div>
-          <h1 style={{ fontSize: 26, fontWeight: 800, color: "#0f172a" }}>Billboard Management</h1>
-          <p style={{ fontSize: 13, color: "#94a3b8", marginTop: 2 }}>{billboards.length} billboards registered</p>
-        </div>
-        <button
-          onClick={openCreate}
-          style={{ background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "#fff", border: "none", borderRadius: 12, padding: "11px 22px", fontWeight: 700, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, boxShadow: "0 4px 14px rgba(99,102,241,0.35)" }}
-        >
-          <Plus size={18} /> Add Billboard
-        </button>
+    <div className="flex flex-col gap-8 h-full bg-darkBg text-textMain relative pb-16">
+      <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
+        <div className="absolute w-[600px] h-[600px] bg-blue-600 opacity-5 blur-[120px] top-10 left-20 rounded-full mix-blend-screen" />
       </div>
 
-      {/* Grid */}
-      {loading ? (
-        <div style={{ textAlign: "center", padding: "60px 0", color: "#6366f1", fontWeight: 600 }}>Loading...</div>
-      ) : billboards.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "60px 0", background: "#f8faff", borderRadius: 20, border: "1px dashed #c7d2fe" }}>
-          <Monitor size={48} color="#c7d2fe" style={{ margin: "0 auto 12px" }} />
-          <p style={{ color: "#64748b", fontSize: 15 }}>No billboards yet. Click "Add Billboard" to start.</p>
+      <div className="relative z-10 w-full">
+        {/* Header */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+          <div>
+            <h1 className="text-3xl font-display font-black text-white">Billboard Database</h1>
+            <p className="text-blue-100/60 mt-1">
+              {billboards.length} registered displays ·{" "}
+              <span className="text-cyan-400 font-medium">Min rate: {formatPkr(minRate)}/min</span>
+            </p>
+          </div>
+          <button onClick={openCreate}
+            className="bg-primary hover:bg-blue-600 border border-primary text-white rounded-xl px-5 py-3 font-medium flex items-center gap-2 transition shadow-[0_0_20px_rgba(59,130,246,0.3)] hover:shadow-[0_0_30px_rgba(59,130,246,0.5)] transform hover:-translate-y-1">
+            <Plus size={18} /> Add Billboard
+          </button>
         </div>
-      ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px,1fr))", gap: 20 }}>
-          {billboards.map(b => (
-            <div key={b._id} style={{ background: "#fff", borderRadius: 18, border: "1px solid #e8edf5", overflow: "hidden", boxShadow: "0 2px 12px rgba(0,0,0,0.04)", transition: "all .2s" }}
-              onMouseEnter={e => e.currentTarget.style.boxShadow = "0 8px 28px rgba(99,102,241,0.12)"}
-              onMouseLeave={e => e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.04)"}>
-              <div style={{ position: "relative", height: 160 }}>
-                <img
-                  src={b.imageUrl || `https://picsum.photos/seed/${b._id}/300/200`}
-                  alt={b.name}
-                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                  onError={e => { e.target.src = "https://picsum.photos/300/200"; }}
-                />
-                <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to top, rgba(0,0,0,0.5), transparent)" }} />
-                <span style={{ position: "absolute", top: 10, right: 10, background: b.status === "active" ? "#10b981" : "#94a3b8", color: "#fff", fontSize: 11, fontWeight: 700, padding: "4px 12px", borderRadius: 20 }}>
-                  {b.status.toUpperCase()}
-                </span>
-                <p style={{ position: "absolute", bottom: 10, left: 12, color: "#fff", fontWeight: 800, fontSize: 16, textShadow: "0 1px 4px rgba(0,0,0,0.5)" }}>{b.name}</p>
-              </div>
-              <div style={{ padding: "16px 18px" }}>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
-                  <div style={{ display: "flex", gap: 5, alignItems: "center", fontSize: 13, color: "#64748b" }}><MapPin size={13} color="#6366f1" /> {b.city}, {b.location}</div>
-                  <div style={{ display: "flex", gap: 5, alignItems: "center", fontSize: 13, color: "#64748b" }}><Monitor size={13} color="#6366f1" /> {b.type} · {b.resolution}</div>
-                  <div style={{ fontWeight: 800, fontSize: 16, color: "#6366f1" }}>PKR {b.pricePerHour}<span style={{ fontSize: 12, fontWeight: 400, color: "#94a3b8" }}>/hr</span></div>
-                  {b.easypaisaNumber && <div style={{ fontSize: 12, color: "#64748b" }}>📱 Easypaisa: {b.easypaisaNumber}</div>}
-                </div>
-                {b.timeSlots?.length > 0 && (
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 12 }}>
-                    {b.timeSlots.slice(0, 3).map(s => (
-                      <span key={s} style={{ background: "#eef2ff", color: "#6366f1", fontSize: 10, padding: "3px 8px", borderRadius: 6, fontWeight: 600 }}>{s}</span>
-                    ))}
-                    {b.timeSlots.length > 3 && <span style={{ fontSize: 11, color: "#94a3b8" }}>+{b.timeSlots.length - 3} more</span>}
-                  </div>
-                )}
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, paddingTop: 10, borderTop: "1px solid #f1f5f9" }}>
-                  {[
-                    { icon: Edit,  color: "#6366f1", hover: "#eef2ff", onClick: () => openEdit(b), title: "Edit" },
-                    { icon: Power, color: b.status === "active" ? "#f59e0b" : "#10b981", hover: b.status === "active" ? "#fffbeb" : "#f0fdf4", onClick: () => toggleStatus(b._id, b.status), title: "Toggle" },
-                    { icon: Trash2, color: "#ef4444", hover: "#fef2f2", onClick: () => handleDelete(b._id), title: "Delete" },
-                  ].map(btn => (
-                    <button key={btn.title} onClick={btn.onClick} title={btn.title}
-                      style={{ padding: "7px", borderRadius: 9, border: "none", cursor: "pointer", background: "transparent", color: btn.color, transition: "background .15s" }}
-                      onMouseEnter={e => e.currentTarget.style.background = btn.hover}
-                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                      <btn.icon size={16} />
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
 
-      {/* Modal */}
-      <AnimatePresence>
-        {modalOpen && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: 16 }}
-            onClick={() => setModalOpen(false)}>
-            <motion.div initial={{ scale: 0.92, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.92, opacity: 0 }} transition={{ type: "spring", stiffness: 260, damping: 22 }}
-              style={{ background: "#fff", borderRadius: 20, maxWidth: 720, width: "100%", maxHeight: "92vh", overflowY: "auto", boxShadow: "0 24px 64px rgba(0,0,0,0.18)" }}
-              onClick={e => e.stopPropagation()}>
-              {/* Modal Header */}
-              <div style={{ position: "sticky", top: 0, background: "#fff", borderBottom: "1px solid #f1f5f9", padding: "18px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", zIndex: 1, borderRadius: "20px 20px 0 0" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ background: "#eef2ff", borderRadius: 10, padding: 8 }}><Monitor size={18} color="#6366f1" /></div>
-                  <h2 style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>{editing ? "Edit Billboard" : "Add New Billboard"}</h2>
-                </div>
-                <button onClick={() => setModalOpen(false)} style={{ background: "#f1f5f9", border: "none", borderRadius: 8, padding: 7, cursor: "pointer", color: "#64748b" }}>
-                  <X size={18} />
-                </button>
-              </div>
-
-              <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 18 }}>
-                {/* Image Upload */}
-                <div>
-                  <label style={{ fontSize: 13, fontWeight: 600, color: "#374151", display: "block", marginBottom: 8 }}>Billboard Image</label>
-                  <div
-                    onClick={() => fileRef.current?.click()}
-                    style={{ border: "2px dashed #c7d2fe", borderRadius: 14, padding: "20px", textAlign: "center", cursor: "pointer", background: "#f8faff", transition: "border .15s", position: "relative", overflow: "hidden" }}
-                    onMouseEnter={e => e.currentTarget.style.borderColor = "#6366f1"}
-                    onMouseLeave={e => e.currentTarget.style.borderColor = "#c7d2fe"}
-                  >
-                    {imagePreview ? (
-                      <img src={imagePreview} alt="preview" style={{ maxHeight: 160, borderRadius: 10, objectFit: "cover", width: "100%" }} />
-                    ) : (
-                      <div>
-                        <Upload size={32} color="#c7d2fe" style={{ margin: "0 auto 8px" }} />
-                        <p style={{ fontSize: 14, color: "#6366f1", fontWeight: 600 }}>Click to upload from gallery</p>
-                        <p style={{ fontSize: 12, color: "#94a3b8" }}>PNG, JPG, WEBP up to 5MB</p>
-                      </div>
-                    )}
-                    <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleImageFile} />
-                  </div>
-                  {imagePreview && (
-                    <button onClick={() => { setImagePreview(""); setImageFile(null); setForm(f => ({ ...f, imageUrl: "" })); }}
-                      style={{ marginTop: 6, fontSize: 12, color: "#ef4444", background: "none", border: "none", cursor: "pointer" }}>
-                      Remove image
-                    </button>
+        {/* Grid */}
+        {loading ? (
+          <div className="flex justify-center items-center h-64 text-blue-400 animate-pulse font-bold text-xl">Syncing...</div>
+        ) : billboards.length === 0 ? (
+          <div className="flex flex-col items-center justify-center p-16 bg-[#131A2A]/40 border border-white/5 border-dashed rounded-3xl">
+            <Monitor size={48} className="text-blue-500/30 mb-4" />
+            <p className="text-blue-200/50">No billboards yet. Click 'Add Billboard' to start.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {billboards.map(b => (
+              <div key={b._id} className="bg-[#131A2A]/80 backdrop-blur-md border border-blue-500/10 rounded-2xl overflow-hidden hover:border-blue-500/40 transition-all duration-300 shadow-[0_0_20px_rgba(59,130,246,0.05)] hover:shadow-[0_0_30px_rgba(59,130,246,0.2)] group flex flex-col">
+                <div className="relative h-48 overflow-hidden bg-black/40 flex items-center justify-center">
+                  {b.imageUrl ? (
+                    <img src={buildMediaUrl(b.imageUrl)} alt={b.name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity duration-500 group-hover:scale-105" />
+                  ) : (
+                    <Monitor size={48} className="text-white/10" />
                   )}
-                </div>
-
-                {/* Basic Info */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  {[
-                    { key: "name",     placeholder: "Billboard Name *" },
-                    { key: "city",     placeholder: "City *" },
-                  ].map(f => (
-                    <input key={f.key} type="text" placeholder={f.placeholder} style={inputStyle}
-                      value={form[f.key]} onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}
-                      onFocus={e => e.target.style.borderColor = "#6366f1"}
-                      onBlur={e => e.target.style.borderColor = "#e2e8f0"} />
-                  ))}
-                </div>
-                <input type="text" placeholder="Location (Street / Area) *" style={inputStyle}
-                  value={form.location} onChange={e => setForm(p => ({ ...p, location: e.target.value }))}
-                  onFocus={e => e.target.style.borderColor = "#6366f1"} onBlur={e => e.target.style.borderColor = "#e2e8f0"} />
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-                  {[
-                    { key: "size",       opts: sizeOptions,    label: "Size" },
-                    { key: "type",       opts: typeOptions,    label: "Type" },
-                    { key: "resolution", opts: resolutionOpts, label: "Resolution" },
-                  ].map(sel => (
-                    <select key={sel.key} style={{ ...inputStyle, background: "#fafbff" }}
-                      value={form[sel.key]} onChange={e => setForm(p => ({ ...p, [sel.key]: e.target.value }))}>
-                      <option value="">{sel.label}</option>
-                      {sel.opts.map(o => <option key={o} value={o}>{o}</option>)}
-                    </select>
-                  ))}
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  <input type="number" placeholder="Price per Hour (PKR) *" style={inputStyle}
-                    value={form.pricePerHour} onChange={e => setForm(p => ({ ...p, pricePerHour: e.target.value }))}
-                    onFocus={e => e.target.style.borderColor = "#6366f1"} onBlur={e => e.target.style.borderColor = "#e2e8f0"} />
-                  <input type="text" placeholder="Easypaisa Number *" style={inputStyle}
-                    value={form.easypaisaNumber} onChange={e => setForm(p => ({ ...p, easypaisaNumber: e.target.value }))}
-                    onFocus={e => e.target.style.borderColor = "#6366f1"} onBlur={e => e.target.style.borderColor = "#e2e8f0"} />
-                </div>
-
-                <select style={{ ...inputStyle, background: "#fafbff" }}
-                  value={form.status} onChange={e => setForm(p => ({ ...p, status: e.target.value }))}>
-                  <option value="active">Active</option>
-                  <option value="offline">Offline</option>
-                  <option value="maintenance">Maintenance</option>
-                </select>
-
-                {/* Days */}
-                <div>
-                  <label style={{ fontSize: 13, fontWeight: 600, color: "#374151", display: "block", marginBottom: 10 }}>Available Days</label>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                    {daysOfWeek.map(d => (
-                      <button key={d} type="button" onClick={() => toggleDay(d)}
-                        style={{ padding: "8px 16px", borderRadius: 30, fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer", transition: "all .15s",
-                          background: selectedDays.includes(d) ? "#6366f1" : "#f1f5f9",
-                          color: selectedDays.includes(d) ? "#fff" : "#64748b" }}>
-                        {d.slice(0, 3)}
-                      </button>
-                    ))}
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#0A0F1C] via-transparent to-transparent opacity-90" />
+                  <span className={`absolute top-4 right-4 text-[10px] uppercase font-bold tracking-widest px-3 py-1 rounded-full border ${b.status === "active" ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" : b.status === "maintenance" ? "bg-amber-500/20 text-amber-400 border-amber-500/30" : "bg-red-500/20 text-red-400 border-red-500/30"}`}>
+                    {b.status}
+                  </span>
+                  <div className="absolute bottom-4 left-4 right-4">
+                    <h3 className="text-xl font-bold text-white drop-shadow-md truncate">{b.name}</h3>
+                    <p className="text-blue-200/70 text-sm flex items-center gap-1 mt-1 truncate">
+                      <MapPin size={12} className="text-primary" /> {b.city}, {b.location}
+                    </p>
                   </div>
                 </div>
 
-                {/* Time Slots */}
-                <div>
-                  <label style={{ fontSize: 13, fontWeight: 600, color: "#374151", display: "block", marginBottom: 10 }}>Time Slots</label>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                    {timeSlotOptions.map(slot => (
-                      <button key={slot.value} type="button" onClick={() => toggleSlot(slot.value)}
-                        style={{ padding: "8px 14px", borderRadius: 10, fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", transition: "all .15s",
-                          background: selectedSlots.includes(slot.value) ? "#4f46e5" : "#eef2ff",
-                          color: selectedSlots.includes(slot.value) ? "#fff" : "#4338ca" }}>
-                        {slot.label}
+                <div className="p-5 flex flex-col flex-grow">
+                  <div className="flex justify-between items-center mb-4">
+                    <div className="text-blue-300 font-bold text-lg">
+                      {formatPkr(b.pricePerMinute ?? b.pricePerHour)}
+                      <span className="text-blue-200/50 text-sm font-normal"> / min</span>
+                    </div>
+                    <div className="text-xs text-white/50 bg-white/5 px-2 py-1 rounded-md">{b.type}</div>
+                  </div>
+
+                  {/* Show dates with slot counts */}
+                  <div className="flex flex-wrap gap-2 mb-6">
+                    {(() => {
+                      // Group stored slots by date
+                      const grouped = {};
+                      (b.timeSlots || []).forEach(s => {
+                        const [d] = s.split(" ");
+                        grouped[d] = (grouped[d] || 0) + 1;
+                      });
+                      return Object.keys(grouped).sort().slice(0, 4).map(d => (
+                        <span key={d} className="bg-primary/10 border border-primary/20 text-blue-300 text-[10px] px-2 py-1 rounded shadow-sm">
+                          {d.slice(5)} · {grouped[d]} slot{grouped[d] > 1 ? "s" : ""}
+                        </span>
+                      ));
+                    })()}
+                    {b.timeSlots?.length > 4 && <span className="text-xs text-blue-200/40 py-1">+more</span>}
+                  </div>
+
+                  <div className="mb-5 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-300/70 mb-2 font-bold">Live Display</p>
+                    <div className="mb-3 flex flex-wrap items-center gap-2 text-[10px]">
+                      <span className={`rounded-full border px-2.5 py-1 font-bold uppercase tracking-[0.18em] ${getDevicePill(b.displayConfig)}`}>
+                        {b.displayConfig?.onlineStatus || "offline"}
+                      </span>
+                      <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 font-bold uppercase tracking-[0.18em] text-blue-100/60">
+                        {b.displayConfig?.screenCode || "No code"}
+                      </span>
+                    </div>
+                    <div className="mb-3 space-y-1 text-[11px] text-blue-100/55">
+                      <p>Device: {b.displayConfig?.deviceLabel || "Raspberry Pi billboard screen"}</p>
+                      <p>Last seen: {formatHeartbeat(b.displayConfig?.lastHeartbeatAt)}</p>
+                      <p>Pi screen: {b.displayConfig?.browserConnected ? "Connected" : "Not connected"}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleCopyPiConfig(b)}
+                        className="flex-1 bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-200 text-xs font-bold py-2 rounded-lg transition-colors flex justify-center items-center gap-2"
+                      >
+                        <Copy size={13} /> {copiedId === `${b._id}:config` ? "Copied" : "Copy Pi Config"}
                       </button>
-                    ))}
+                      <button
+                        onClick={() => handleCopyDeviceToken(b)}
+                        className="flex-1 bg-white/5 hover:bg-white/10 text-blue-100 text-xs font-bold py-2 rounded-lg transition-colors flex justify-center items-center gap-2"
+                      >
+                        <Copy size={13} /> {copiedId === `${b._id}:token` ? "Copied" : "Copy Token"}
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => handleRotateDeviceToken(b._id)}
+                      disabled={rotatingId === b._id}
+                      className="mt-2 w-full bg-white/5 hover:bg-white/10 text-blue-100 text-xs font-bold py-2 rounded-lg transition-colors"
+                    >
+                      {rotatingId === b._id ? "Rotating..." : "Rotate Screen Token"}
+                    </button>
+                  </div>
+
+                  <div className="mt-auto pt-4 border-t border-white/5 flex justify-between gap-2">
+                    <button onClick={() => toggleStatus(b._id, b.status)} className="flex-1 bg-white/5 hover:bg-white/10 text-blue-200 text-xs font-bold py-2 rounded-lg transition-colors flex justify-center items-center gap-2">
+                      <Power size={14} className={b.status === "active" ? "text-emerald-400" : "text-amber-400"} /> Toggle
+                    </button>
+                    <button onClick={() => openEdit(b)} className="bg-white/5 hover:bg-primary/20 text-blue-200 text-xs font-bold px-4 py-2 rounded-lg transition-colors">
+                      <Edit size={14} />
+                    </button>
+                    <button onClick={() => handleDelete(b._id)} className="bg-danger/10 hover:bg-danger/30 text-danger text-xs font-bold px-4 py-2 rounded-lg transition-colors">
+                      <Trash2 size={14} />
+                    </button>
                   </div>
                 </div>
+              </div>
+            ))}
+          </div>
+        )}
 
-                {/* Generated Slots Preview */}
-                {buildSlots().length > 0 && (
-                  <div style={{ background: "#f8faff", borderRadius: 12, padding: 16, border: "1px solid #e0e7ff" }}>
-                    <p style={{ fontSize: 12, fontWeight: 700, color: "#6366f1", marginBottom: 10 }}>✅ Generated Time Slots ({buildSlots().length})</p>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                      {buildSlots().map((s, i) => (
-                        <span key={i} style={{ background: "#e0e7ff", color: "#4338ca", fontSize: 11, padding: "4px 10px", borderRadius: 20, fontWeight: 600 }}>{s}</span>
-                      ))}
+        {/* ── MODAL ──────────────────────────────────────────────────────────── */}
+        <AnimatePresence>
+          {modalOpen && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-[#0A0F1C]/85 backdrop-blur-md z-50 flex justify-center items-center p-4">
+              <motion.div initial={{ scale: 0.95, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 20 }}
+                className="bg-darkCard border border-blue-500/20 rounded-3xl w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden shadow-[0_0_60px_rgba(59,130,246,0.15)]">
+
+                {/* Modal header */}
+                <div className="p-6 border-b border-white/5 flex justify-between items-center bg-darkBg/50 flex-shrink-0">
+                  <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+                    <Monitor className="text-primary" /> {editing ? "Edit Billboard" : "Add New Billboard"}
+                  </h2>
+                  <button onClick={() => setModalOpen(false)} className="text-white/50 hover:text-white bg-white/5 p-2 rounded-full transition-colors"><X size={20} /></button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-6 md:p-8">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+
+                    {/* ── Left: Billboard Details ─────────────────────────── */}
+                    <div className="flex flex-col gap-5">
+                      <div>
+                        <label className="text-xs font-bold text-blue-200/50 uppercase tracking-widest mb-1 block">Billboard Name *</label>
+                        <input type="text" className="w-full bg-[#131A2A] border border-blue-500/20 text-white rounded-xl px-4 py-3 focus:outline-none focus:border-blue-500 transition-colors"
+                          value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. DHA Phase 6 Mega Screen" />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-xs font-bold text-blue-200/50 uppercase tracking-widest mb-1 block">City *</label>
+                          <input type="text" className="w-full bg-[#131A2A] border border-blue-500/20 text-white rounded-xl px-4 py-3 focus:outline-none focus:border-blue-500 transition-colors"
+                            value={form.city} onChange={e => setForm(p => ({ ...p, city: e.target.value }))} placeholder="Karachi" />
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-blue-200/50 uppercase tracking-widest mb-1 block">Location / Sector *</label>
+                          <input type="text" className="w-full bg-[#131A2A] border border-blue-500/20 text-white rounded-xl px-4 py-3 focus:outline-none focus:border-blue-500 transition-colors"
+                            value={form.location} onChange={e => setForm(p => ({ ...p, location: e.target.value }))} placeholder="Sector Y, Block 5" />
+                        </div>
+                      </div>
+
+                      {/* Rate per MINUTE with min validation */}
+                      <div>
+                        <label className="text-xs font-bold text-blue-200/50 uppercase tracking-widest mb-1 block">
+                          Rate (PKR / minute) * &nbsp;
+                          <span className="text-cyan-400 font-bold normal-case">Min: {formatPkr(minRate)}/min</span>
+                        </label>
+                        <div className="relative">
+                          <input type="number" min={minRate} step="0.5"
+                            className={`w-full bg-[#131A2A] border text-white rounded-xl px-4 py-3 focus:outline-none transition-colors pr-20 ${priceError ? "border-red-500/60 focus:border-red-500" : "border-blue-500/20 focus:border-blue-500"}`}
+                            value={form.pricePerMinute} onChange={e => handlePriceChange(e.target.value)} placeholder={`Min ${minRate}`} />
+                          <span className="absolute right-4 top-3.5 text-blue-200/40 text-sm font-bold">PKR/min</span>
+                        </div>
+                        {priceError && (
+                          <p className="text-red-400 text-xs mt-1 flex items-center gap-1"><AlertCircle size={12} />{priceError}</p>
+                        )}
+                        {form.pricePerMinute && !priceError && (
+                          <p className="text-blue-200/40 text-xs mt-1">
+                            ~= {formatPkr(parseFloat(form.pricePerMinute) * 60)}/hour
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-xs font-bold text-blue-200/50 uppercase tracking-widest mb-1 block">Operating Status</label>
+                          <select className="w-full bg-[#131A2A] border border-blue-500/20 text-white rounded-xl px-4 py-3 focus:outline-none focus:border-blue-500 transition-colors [color-scheme:dark]"
+                            value={form.status} onChange={e => setForm(p => ({ ...p, status: e.target.value }))}>
+                            <option value="active">🟢 Active</option>
+                            <option value="maintenance">🟠 Maintenance</option>
+                            <option value="offline">🔴 Offline</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-blue-200/50 uppercase tracking-widest mb-1 block">Type</label>
+                          <select className="w-full bg-[#131A2A] border border-blue-500/20 text-white rounded-xl px-3 py-3 focus:outline-none focus:border-blue-500 transition-colors [color-scheme:dark]"
+                            value={form.type} onChange={e => setForm(p => ({ ...p, type: e.target.value }))}>
+                            {typeOptions.map(o => <option key={o} value={o}>{o}</option>)}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-xs font-bold text-blue-200/50 uppercase tracking-widest mb-1 block">Size</label>
+                          <select className="w-full bg-[#131A2A] border border-blue-500/20 text-white rounded-xl px-3 py-3 focus:outline-none focus:border-blue-500 transition-colors [color-scheme:dark]"
+                            value={form.size} onChange={e => setForm(p => ({ ...p, size: e.target.value }))}>
+                            {sizeOptions.map(o => <option key={o} value={o}>{o}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-blue-200/50 uppercase tracking-widest mb-1 block">Resolution</label>
+                          <select className="w-full bg-[#131A2A] border border-blue-500/20 text-white rounded-xl px-3 py-3 focus:outline-none focus:border-blue-500 transition-colors [color-scheme:dark]"
+                            value={form.resolution} onChange={e => setForm(p => ({ ...p, resolution: e.target.value }))}>
+                            {resolutionOpts.map(o => <option key={o} value={o}>{o}</option>)}
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Image Upload */}
+                      <div>
+                        <label className="text-xs font-bold text-blue-200/50 uppercase tracking-widest mb-2 block">Billboard Image</label>
+                        <div onClick={() => fileRef.current?.click()}
+                          className="border-2 border-dashed border-blue-500/30 rounded-2xl p-2 h-40 bg-[#131A2A]/50 hover:bg-[#131A2A] hover:border-blue-500/60 transition-all cursor-pointer flex flex-col items-center justify-center relative overflow-hidden group">
+                          {imagePreview ? (
+                            <>
+                              <img src={imagePreview} alt="Preview" className="w-full h-full object-cover rounded-xl" />
+                              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <p className="text-white font-bold flex items-center gap-2"><Upload size={18} /> Replace Image</p>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="flex flex-col items-center text-blue-300/50 group-hover:text-blue-400 transition-colors">
+                              <Upload size={28} className="mb-2" />
+                              <p className="font-bold text-sm">Click to browse</p>
+                              <p className="text-xs mt-1 opacity-60">.jpg .png .webp (max 5MB)</p>
+                            </div>
+                          )}
+                          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleImageFile} />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* ── Right: Per-Date Slot Builder ─────────────────────── */}
+                    <div className="flex flex-col gap-4">
+                      <div className="bg-[#131A2A]/80 border border-blue-500/20 rounded-2xl p-6 shadow-[0_0_20px_rgba(59,130,246,0.05)]">
+                        <div className="border-b border-white/5 pb-4 mb-5 flex items-center gap-3">
+                          <Calendar className="text-primary" />
+                          <div>
+                            <h4 className="text-white font-bold">Per-Date Availability Builder</h4>
+                            <p className="text-[10px] text-blue-200/50 uppercase tracking-widest">Each date gets its own independent time slots</p>
+                          </div>
+                        </div>
+
+                        {/* Date + time inputs */}
+                        <div className="bg-[#0A0F1C]/60 border border-blue-500/10 rounded-xl p-4 mb-4">
+                          <div className="mb-3">
+                            <label className="text-xs font-bold text-blue-200/60 mb-1.5 block">Step 1 — Pick a Date</label>
+                            <div className="relative">
+                              <input type="date" value={activeDate} onChange={e => setActiveDate(e.target.value)}
+                                className="w-full bg-[#131A2A] border border-blue-500/30 text-white rounded-lg pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:border-blue-400 [color-scheme:dark]" />
+                              <Calendar size={15} className="absolute left-3 top-3 text-blue-400 pointer-events-none" />
+                            </div>
+                          </div>
+
+                          <div className="mb-3">
+                            <label className="text-xs font-bold text-blue-200/60 mb-1.5 block">Step 2 — Set Time Slot for this Date</label>
+                            <div className="flex items-center gap-2">
+                              <div className="relative flex-1">
+                                <input type="time" value={slotStart} onChange={e => setSlotStart(e.target.value)}
+                                  className="w-full bg-[#131A2A] border border-blue-500/30 text-white rounded-lg pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:border-blue-400 [color-scheme:dark]" />
+                                <Clock size={14} className="absolute left-3 top-3 text-blue-400 pointer-events-none" />
+                              </div>
+                              <span className="text-blue-200/50 font-bold">→</span>
+                              <div className="relative flex-1">
+                                <input type="time" value={slotEnd} onChange={e => setSlotEnd(e.target.value)}
+                                  className="w-full bg-[#131A2A] border border-blue-500/30 text-white rounded-lg pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:border-blue-400 [color-scheme:dark]" />
+                                <Clock size={14} className="absolute left-3 top-3 text-blue-400 pointer-events-none" />
+                              </div>
+                            </div>
+                          </div>
+
+                          <button onClick={addSlot}
+                            className="w-full bg-blue-500/20 hover:bg-blue-500 text-blue-400 hover:text-white border border-blue-500/50 transition-colors rounded-lg py-2 text-sm font-bold flex justify-center items-center gap-2">
+                            <Plus size={15} /> Add Slot to {activeDate || "Selected Date"}
+                          </button>
+                        </div>
+
+                        {/* Per-date slot board */}
+                        <div className="max-h-72 overflow-y-auto flex flex-col gap-3">
+                          {scheduledDates.length === 0 ? (
+                            <div className="text-center py-8 text-white/20 border border-dashed border-white/5 rounded-xl text-sm">
+                              No dates scheduled yet. Pick a date and add time slots above.
+                            </div>
+                          ) : scheduledDates.map(date => (
+                            <div key={date} className="bg-[#0A0F1C]/40 border border-white/5 rounded-xl overflow-hidden">
+                              {/* Date header */}
+                              <div className="flex justify-between items-center px-4 py-2.5 bg-blue-500/10 border-b border-white/5">
+                                <span className="text-sm font-bold text-cyan-300 flex items-center gap-2">
+                                  <Calendar size={14} className="text-cyan-400" /> {date}
+                                  <span className="text-[10px] text-blue-200/40 font-normal ml-1">
+                                    ({dateSlots[date]?.length || 0} slot{dateSlots[date]?.length !== 1 ? "s" : ""})
+                                  </span>
+                                </span>
+                                <button onClick={() => removeDate(date)} className="text-red-400/40 hover:text-red-400 transition-colors text-xs font-bold flex items-center gap-1">
+                                  <X size={13} /> Remove Date
+                                </button>
+                              </div>
+                              {/* Slots for this date */}
+                              <div className="p-3 flex flex-wrap gap-2">
+                                {(dateSlots[date] || []).map(slot => (
+                                  <div key={slot} className="flex items-center gap-1 bg-blue-900/20 border border-blue-500/20 rounded-lg px-3 py-1.5 group">
+                                    <Clock size={12} className="text-primary" />
+                                    <span className="text-blue-200 text-xs font-medium">{slot}</span>
+                                    <button onClick={() => removeSlot(date, slot)} className="ml-1 text-red-400/40 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all">
+                                      <X size={11} />
+                                    </button>
+                                  </div>
+                                ))}
+                                {/* Quick-add to this specific date */}
+                                <button onClick={() => setActiveDate(date)}
+                                  className={`text-[10px] font-bold px-3 py-1.5 rounded-lg border transition-colors ${activeDate === date ? "bg-blue-500/30 border-blue-500/60 text-blue-300" : "bg-white/5 border-white/10 text-white/30 hover:text-blue-300 hover:border-blue-500/30"}`}>
+                                  {activeDate === date ? "✓ Editing" : "+ Add slot"}
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Summary */}
+                      {totalSlots > 0 && (
+                        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl px-5 py-4 flex items-center gap-3">
+                          <CheckCircle2 size={18} className="text-emerald-400 flex-shrink-0" />
+                          <p className="text-sm font-bold text-emerald-300">
+                            {scheduledDates.length} date{scheduledDates.length !== 1 ? "s" : ""} · {totalSlots} total slot{totalSlots !== 1 ? "s" : ""} configured
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
-                )}
-
-                {/* Actions */}
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, paddingTop: 8, borderTop: "1px solid #f1f5f9" }}>
-                  <button onClick={() => setModalOpen(false)} disabled={submitting}
-                    style={{ padding: "10px 22px", borderRadius: 10, border: "1px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>
-                    Cancel
-                  </button>
-                  <button onClick={handleSubmit} disabled={submitting}
-                    style={{ padding: "10px 28px", borderRadius: 10, border: "none", background: "linear-gradient(135deg,#6366f1,#8b5cf6)", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer", boxShadow: "0 4px 14px rgba(99,102,241,.35)", opacity: submitting ? 0.7 : 1 }}>
-                    {submitting ? "Saving..." : (editing ? "Update Billboard" : "Create Billboard")}
-                  </button>
                 </div>
-              </div>
+
+                {/* Footer */}
+                <div className="p-6 border-t border-white/5 bg-darkBg/50 flex justify-between items-center flex-shrink-0">
+                  <p className="text-xs text-blue-200/40">
+                    {totalSlots > 0
+                      ? `${scheduledDates.length} date(s) · ${totalSlots} slot(s) ready`
+                      : "Add at least one time slot to publish"}
+                  </p>
+                  <div className="flex gap-3">
+                    <button onClick={() => setModalOpen(false)} className="px-6 py-3 rounded-xl border border-white/10 text-white font-bold hover:bg-white/5 transition-colors">Cancel</button>
+                    <button onClick={handleSubmit} disabled={submitting || !!priceError}
+                      className="bg-primary hover:bg-blue-600 border border-primary text-white text-sm font-bold px-8 py-3 rounded-xl transition-all shadow-[0_0_20px_rgba(59,130,246,0.3)] disabled:opacity-50">
+                      {submitting ? "Saving..." : editing ? "Save Changes" : "Deploy Billboard"}
+                    </button>
+                  </div>
+                </div>
+
+              </motion.div>
             </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }

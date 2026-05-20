@@ -1,266 +1,499 @@
-import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
 import {
   Calendar,
-  Search,
-  Filter,
-  CheckCircle,
-  XCircle,
-  Clock,
+  CheckCircle2,
+  Clock3,
+  CreditCard,
+  ImagePlus,
   MapPin,
   Monitor,
-  ChevronDown,
+  MonitorPlay,
+  Search,
+  UserRound,
+  XCircle,
 } from "lucide-react";
-import { getBookings, updateBookingStatus } from "../../services/adminApi";
+import { getBookings, sendAdToDisplay, updateBookingStatus } from "../../services/adminApi";
+import { buildMediaUrl } from "../../utils/media";
 
-const AdminSchedule = () => {
+const STAGE_META = {
+  pending_review: {
+    label: "Awaiting Review",
+    color: "text-violet-300",
+    border: "border-violet-500/30",
+    bg: "bg-violet-500/10",
+  },
+  approved: {
+    label: "Approved - Waiting Payment",
+    color: "text-sky-300",
+    border: "border-sky-500/30",
+    bg: "bg-sky-500/10",
+  },
+  proof_submitted: {
+    label: "Proof Submitted",
+    color: "text-amber-300",
+    border: "border-amber-500/30",
+    bg: "bg-amber-500/10",
+  },
+  verified: {
+    label: "Verified / Scheduled",
+    color: "text-emerald-300",
+    border: "border-emerald-500/30",
+    bg: "bg-emerald-500/10",
+  },
+  active: {
+    label: "Live",
+    color: "text-cyan-300",
+    border: "border-cyan-500/30",
+    bg: "bg-cyan-500/10",
+  },
+  completed: {
+    label: "Completed",
+    color: "text-blue-300",
+    border: "border-blue-500/30",
+    bg: "bg-blue-500/10",
+  },
+  rejected: {
+    label: "Rejected",
+    color: "text-red-300",
+    border: "border-red-500/30",
+    bg: "bg-red-500/10",
+  },
+  cancelled: {
+    label: "Cancelled",
+    color: "text-slate-300",
+    border: "border-slate-500/30",
+    bg: "bg-slate-500/10",
+  },
+};
+
+function formatPkr(value) {
+  return `PKR ${Number(value || 0).toLocaleString()}`;
+}
+
+function getScheduleStage(booking) {
+  if (booking.status === "rejected") return "rejected";
+  if (booking.status === "cancelled") return "cancelled";
+  if (booking.status === "completed") return "completed";
+  if (booking.status === "active") return "active";
+  if (booking.status === "scheduled" && booking.paymentStatus === "paid") return "verified";
+  if (booking.status === "approved" && booking.paymentStatus === "submitted") return "proof_submitted";
+  if (booking.status === "approved") return "approved";
+  if (booking.status === "pending") return "pending_review";
+  return "pending_review";
+}
+
+function StatusBadge({ stage }) {
+  const config = STAGE_META[stage] || STAGE_META.pending_review;
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] ${config.color} ${config.border} ${config.bg}`}
+    >
+      {config.label}
+    </span>
+  );
+}
+
+function PreviewPanel({ title, imageUrl, mediaType, fallbackIcon: FallbackIcon, alt }) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0A0F1C]/80">
+      <div className="border-b border-white/10 px-4 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-white/45">
+        {title}
+      </div>
+      <div className="flex h-52 items-center justify-center bg-black/40">
+        {imageUrl ? (
+          mediaType === "video" ? (
+            <video src={buildMediaUrl(imageUrl)} className="h-full w-full object-cover" muted autoPlay loop playsInline />
+          ) : (
+            <img src={buildMediaUrl(imageUrl)} alt={alt} className="h-full w-full object-cover" />
+          )
+        ) : (
+          <FallbackIcon size={34} className="text-white/20" />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function getPaymentStateText(booking) {
+  if (booking.paymentStatus === "paid") return "Verified";
+  if (booking.paymentStatus === "submitted") return "Proof Submitted";
+  if (booking.paymentStatus === "failed") return "Proof Rejected";
+  return "Pending";
+}
+
+export default function AdminSchedule() {
+  const navigate = useNavigate();
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [filterStage, setFilterStage] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterStatus, setFilterStatus] = useState("all");
-  const [filterBillboard, setFilterBillboard] = useState("all");
-  const [showFilters, setShowFilters] = useState(false);
-  const [dateFilter, setDateFilter] = useState("");
-
-  useEffect(() => {
-    loadBookings();
-  }, []);
+  const [workingId, setWorkingId] = useState("");
 
   const loadBookings = async () => {
     setLoading(true);
     try {
       const res = await getBookings();
-      setBookings(res.data);
-    } catch (err) {
-      console.error(err);
+      setBookings(res.data || []);
+    } catch (error) {
+      console.error(error);
     } finally {
       setLoading(false);
     }
   };
 
-  const updateStatus = async (id, newStatus) => {
-    await updateBookingStatus(id, newStatus);
+  useEffect(() => {
     loadBookings();
+  }, []);
+
+  const filteredBookings = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+
+    return bookings.filter((booking) => {
+      const stage = getScheduleStage(booking);
+      const matchesStage = filterStage === "all" || stage === filterStage;
+      if (!matchesStage) return false;
+
+      if (!term) return true;
+
+      return [
+        booking.billboard?.name,
+        booking.billboard?.location,
+        booking.billboard?.city,
+        booking.ad?.title,
+        booking.customerName,
+        booking.customerEmail,
+        booking.customerPhone,
+        booking.advertiser?.name,
+        booking.advertiser?.email,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(term));
+    });
+  }, [bookings, filterStage, searchTerm]);
+
+  const counts = useMemo(
+    () => ({
+      all: bookings.length,
+      pending_review: bookings.filter((booking) => getScheduleStage(booking) === "pending_review").length,
+      approved: bookings.filter((booking) => getScheduleStage(booking) === "approved").length,
+      proof_submitted: bookings.filter((booking) => getScheduleStage(booking) === "proof_submitted").length,
+      verified: bookings.filter((booking) => getScheduleStage(booking) === "verified").length,
+      active: bookings.filter((booking) => getScheduleStage(booking) === "active").length,
+      completed: bookings.filter((booking) => getScheduleStage(booking) === "completed").length,
+    }),
+    [bookings]
+  );
+
+  const handleStatusUpdate = async (bookingId, status) => {
+    setWorkingId(bookingId);
+    try {
+      await updateBookingStatus(bookingId, status);
+      await loadBookings();
+    } catch (error) {
+      console.error(error);
+      alert(error.response?.data?.message || "Could not update the booking status.");
+    } finally {
+      setWorkingId("");
+    }
   };
 
-  const uniqueBillboards = ["all", ...new Set(bookings.map(b => b.billboard?.name).filter(Boolean))];
-
-  const filteredBookings = bookings.filter((b) => {
-    const matchesSearch =
-      (b.advertiser?.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (b.billboard?.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (b._id || "").toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = filterStatus === "all" || b.status === filterStatus;
-    const matchesBillboard = filterBillboard === "all" || b.billboard?.name === filterBillboard;
-    const matchesDate = !dateFilter || new Date(b.date).toDateString() === new Date(dateFilter).toDateString();
-    return matchesSearch && matchesStatus && matchesBillboard && matchesDate;
-  });
-
-  const formatDate = (date) => new Date(date).toLocaleDateString();
-  const formatTime = (date) => new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-  const statusColors = {
-    pending: "bg-yellow-100 text-yellow-800 border-yellow-300",
-    confirmed: "bg-green-100 text-green-800 border-green-300",
-    cancelled: "bg-red-100 text-red-800 border-red-300",
-    completed: "bg-blue-100 text-blue-800 border-blue-300",
+  const handleDisplayNow = async (bookingId) => {
+    setWorkingId(bookingId);
+    try {
+      await sendAdToDisplay({ bookingId });
+      await loadBookings();
+      alert("Scheduled ad was pushed to the billboard screen.");
+    } catch (error) {
+      console.error(error);
+      alert(error.response?.data?.message || "Could not push this ad to the display.");
+    } finally {
+      setWorkingId("");
+    }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      {/* Header */}
-      <motion.div
-        initial={{ y: -50, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        className="mb-8"
-      >
-        <h1 className="text-4xl font-bold text-gray-800">Schedule Manager</h1>
-        <p className="text-gray-500 mt-1">Manage all billboard bookings and slots</p>
-      </motion.div>
-
-      {/* Search & Filters */}
-      <motion.div
-        initial={{ y: 20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        className="mb-8 bg-white rounded-xl shadow-sm border border-gray-200 p-5"
-      >
-        <div className="flex flex-wrap gap-4 items-center">
-          <div className="flex-1 relative">
-            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-            <input
-              type="text"
-              placeholder="Search by advertiser, billboard, or booking ID..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-            />
-          </div>
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className="px-5 py-3 bg-gray-100 hover:bg-gray-200 rounded-xl flex items-center gap-2 transition-all"
-          >
-            <Filter className="w-5 h-5" />
-            Filter
-            <ChevronDown className={`w-4 h-4 transform transition-transform ${showFilters ? 'rotate-180' : ''}`} />
-          </button>
+    <div className="flex flex-col gap-6 pb-16">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h1 className="flex items-center gap-3 text-3xl font-black text-white">
+            <Calendar className="text-sky-400" /> Schedule Control Room
+          </h1>
+          <p className="mt-2 max-w-3xl text-sm text-blue-100/60">
+            Review every stage from admin approval and proof submission to verified scheduling, live playback, and completed runs.
+          </p>
         </div>
 
-        <AnimatePresence>
-          {showFilters && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              className="overflow-hidden mt-4 pt-4 border-t border-gray-200"
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+          {[
+            { key: "approved", label: "Approved", value: counts.approved, color: "text-sky-300" },
+            { key: "proof_submitted", label: "Proof Sent", value: counts.proof_submitted, color: "text-amber-300" },
+            { key: "verified", label: "Verified", value: counts.verified, color: "text-emerald-300" },
+            { key: "active", label: "Live", value: counts.active, color: "text-cyan-300" },
+            { key: "completed", label: "Completed", value: counts.completed, color: "text-blue-300" },
+          ].map((card) => (
+            <div key={card.key} className="rounded-2xl border border-white/5 bg-[#131A2A]/80 px-4 py-3 text-center">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/35">{card.label}</p>
+              <p className={`mt-1 text-xl font-black ${card.color}`}>{card.value}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-4 lg:flex-row">
+        <div className="relative flex-1">
+          <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Search by ad, advertiser, customer, or billboard..."
+            className="w-full rounded-2xl border border-white/10 bg-[#131A2A]/80 py-3 pl-12 pr-4 text-white focus:border-sky-500 focus:outline-none"
+          />
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {[
+            { id: "all", label: `All (${counts.all})` },
+            { id: "pending_review", label: `Awaiting Review (${counts.pending_review})` },
+            { id: "approved", label: `Approved (${counts.approved})` },
+            { id: "proof_submitted", label: `Proof Submitted (${counts.proof_submitted})` },
+            { id: "verified", label: `Verified (${counts.verified})` },
+            { id: "active", label: `Live (${counts.active})` },
+            { id: "completed", label: `Completed (${counts.completed})` },
+            { id: "rejected", label: "Rejected" },
+            { id: "cancelled", label: "Cancelled" },
+          ].map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setFilterStage(item.id)}
+              className={`rounded-xl border px-4 py-3 text-xs font-black uppercase tracking-[0.2em] transition ${
+                filterStage === item.id
+                  ? "border-sky-500/40 bg-sky-500/15 text-sky-200"
+                  : "border-white/10 bg-white/5 text-white/45 hover:text-white"
+              }`}
             >
-              <div className="flex flex-wrap gap-4">
-                <div>
-                  <label className="block text-sm text-gray-600 mb-1">Status</label>
-                  <select
-                    value={filterStatus}
-                    onChange={(e) => setFilterStatus(e.target.value)}
-                    className="px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg"
-                  >
-                    <option value="all">All</option>
-                    <option value="pending">Pending</option>
-                    <option value="confirmed">Confirmed</option>
-                    <option value="cancelled">Cancelled</option>
-                    <option value="completed">Completed</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-600 mb-1">Billboard</label>
-                  <select
-                    value={filterBillboard}
-                    onChange={(e) => setFilterBillboard(e.target.value)}
-                    className="px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg"
-                  >
-                    {uniqueBillboards.map(b => (
-                      <option key={b} value={b}>{b === 'all' ? 'All Billboards' : b}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-600 mb-1">Date</label>
-                  <input
-                    type="date"
-                    value={dateFilter}
-                    onChange={(e) => setDateFilter(e.target.value)}
-                    className="px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg"
-                  />
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </motion.div>
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
-      {/* Bookings Table */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
-      >
-        {loading ? (
-          <div className="text-center py-12 text-gray-500">Loading schedule...</div>
-        ) : filteredBookings.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">No bookings found</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead className="bg-gray-50 border-b">
-                <tr>
-                  <th className="px-6 py-3 text-sm font-semibold text-gray-600">Booking ID</th>
-                  <th className="px-6 py-3 text-sm font-semibold text-gray-600">Advertiser</th>
-                  <th className="px-6 py-3 text-sm font-semibold text-gray-600">Billboard</th>
-                  <th className="px-6 py-3 text-sm font-semibold text-gray-600">Location</th>
-                  <th className="px-6 py-3 text-sm font-semibold text-gray-600">Date</th>
-                  <th className="px-6 py-3 text-sm font-semibold text-gray-600">Time Slot</th>
-                  <th className="px-6 py-3 text-sm font-semibold text-gray-600">Amount</th>
-                  <th className="px-6 py-3 text-sm font-semibold text-gray-600">Status</th>
-                  <th className="px-6 py-3 text-sm font-semibold text-gray-600">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredBookings.map((booking) => (
-                  <tr key={booking._id} className="border-b hover:bg-gray-50 transition">
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">{booking._id.slice(-6)}</td>
-                    <td className="px-6 py-4 text-sm text-gray-700">{booking.advertiser?.name || "N/A"}</td>
-                    <td className="px-6 py-4 text-sm text-gray-700">{booking.billboard?.name || "N/A"}</td>
-                    <td className="px-6 py-4 text-sm text-gray-700">{booking.billboard?.city || "N/A"}</td>
-                    <td className="px-6 py-4 text-sm text-gray-700">{formatDate(booking.date)}</td>
-                    <td className="px-6 py-4 text-sm text-gray-700">{booking.timeSlot || "Full day"}</td>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">PKR {booking.totalPrice?.toLocaleString()}</td>
-                    <td className="px-6 py-4">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium border ${statusColors[booking.status] || statusColors.pending}`}>
-                        {booking.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex gap-2">
-                        {booking.status === "pending" && (
-                          <>
-                            <button
-                              onClick={() => updateStatus(booking._id, "confirmed")}
-                              className="p-1.5 bg-green-100 text-green-700 rounded-lg hover:bg-green-200"
-                              title="Confirm"
-                            >
-                              <CheckCircle size={16} />
-                            </button>
-                            <button
-                              onClick={() => updateStatus(booking._id, "cancelled")}
-                              className="p-1.5 bg-red-100 text-red-700 rounded-lg hover:bg-red-200"
-                              title="Cancel"
-                            >
-                              <XCircle size={16} />
-                            </button>
-                          </>
-                        )}
-                        {booking.status === "confirmed" && (
-                          <button
-                            onClick={() => updateStatus(booking._id, "completed")}
-                            className="p-1.5 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200"
-                            title="Mark Completed"
-                          >
-                            <CheckCircle size={16} />
-                          </button>
-                        )}
+      {loading ? (
+        <div className="flex min-h-[50vh] items-center justify-center rounded-3xl border border-white/5 bg-[#131A2A]/60 text-lg font-black text-sky-300">
+          Loading schedule...
+        </div>
+      ) : filteredBookings.length === 0 ? (
+        <div className="flex min-h-[50vh] flex-col items-center justify-center rounded-3xl border border-dashed border-white/10 bg-[#131A2A]/40 px-6 text-center">
+          <Calendar size={42} className="mb-4 text-white/20" />
+          <h3 className="text-xl font-black text-white">No schedule items for this filter</h3>
+          <p className="mt-2 max-w-xl text-sm text-blue-100/45">
+            Once advertisers book, pay, and get verified, their campaigns will appear here with the current workflow state.
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-5">
+          {filteredBookings.map((booking, index) => {
+            const stage = getScheduleStage(booking);
+            const ratePerMinute = Number(booking.ratePerMinute ?? booking.billboard?.pricePerMinute ?? booking.billboard?.pricePerHour ?? 0);
+
+            return (
+              <motion.div
+                key={booking._id}
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.03 }}
+                className="rounded-3xl border border-white/5 bg-[#131A2A]/85 p-6 shadow-[0_18px_60px_rgba(0,0,0,0.24)]"
+              >
+                <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
+                    <PreviewPanel
+                      title="Billboard Preview"
+                      imageUrl={booking.billboard?.imageUrl}
+                      mediaType="image"
+                      fallbackIcon={Monitor}
+                      alt={booking.billboard?.name || "Billboard"}
+                    />
+                    <PreviewPanel
+                      title="Ad Creative"
+                      imageUrl={booking.ad?.mediaUrl}
+                      mediaType={booking.ad?.mediaType}
+                      fallbackIcon={ImagePlus}
+                      alt={booking.ad?.title || "Ad Creative"}
+                    />
+                  </div>
+
+                  <div className="space-y-5">
+                    <div className="flex flex-col gap-3 border-b border-white/10 pb-5 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <h2 className="text-2xl font-black text-white">{booking.ad?.title || "Uploaded Ad"}</h2>
+                          <StatusBadge stage={stage} />
+                        </div>
+                        <p className="mt-2 text-sm text-blue-100/60">
+                          Billboard: <span className="font-bold text-white">{booking.billboard?.name || "Unknown Billboard"}</span>
+                        </p>
                       </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </motion.div>
 
-      {/* Summary Stats */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
-        className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4"
-      >
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
-          <p className="text-gray-500 text-sm">Total Bookings</p>
-          <p className="text-2xl font-bold">{bookings.length}</p>
+                      <div className="rounded-2xl border border-sky-500/20 bg-sky-500/10 px-4 py-3 text-right">
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-sky-200/70">
+                          Payment Status
+                        </p>
+                        <p className="mt-1 text-xl font-black text-white">{formatPkr(booking.totalPrice)}</p>
+                        <p className={`mt-1 text-xs font-bold ${booking.paymentStatus === "paid" ? "text-emerald-300" : "text-amber-300"}`}>
+                          {getPaymentStateText(booking)}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-5 lg:grid-cols-2">
+                      <div className="rounded-2xl border border-white/10 bg-[#0A0F1C]/60 p-4">
+                        <p className="text-xs font-black uppercase tracking-[0.2em] text-white/35">Billboard and Slot</p>
+                        <div className="mt-4 space-y-3 text-sm text-blue-100/70">
+                          <p className="flex items-start gap-2">
+                            <MapPin size={15} className="mt-0.5 text-sky-300" />
+                            <span>{booking.billboard?.city}, {booking.billboard?.location}</span>
+                          </p>
+                          <p className="flex items-start gap-2">
+                            <Calendar size={15} className="mt-0.5 text-sky-300" />
+                            <span>{new Date(booking.date).toLocaleDateString("en-PK", { year: "numeric", month: "long", day: "numeric" })}</span>
+                          </p>
+                          <p className="flex items-start gap-2">
+                            <Clock3 size={15} className="mt-0.5 text-sky-300" />
+                            <span>{booking.timeSlot}</span>
+                          </p>
+                          <p className="flex items-start gap-2">
+                            <Monitor size={15} className="mt-0.5 text-sky-300" />
+                            <span>
+                              {booking.billboard?.size || "Digital Screen"} · {booking.billboard?.type || "Billboard"} · {booking.billboard?.resolution || "N/A"}
+                            </span>
+                          </p>
+                          <p className="flex items-start gap-2">
+                            <CheckCircle2 size={15} className="mt-0.5 text-sky-300" />
+                            <span>
+                              Screen {booking.billboard?.displayConfig?.screenCode || "not assigned"} ·{" "}
+                              {booking.billboard?.displayConfig?.onlineStatus || "offline"} · Pi browser{" "}
+                              {booking.billboard?.displayConfig?.browserConnected ? "connected" : "not connected"}
+                            </span>
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-white/10 bg-[#0A0F1C]/60 p-4">
+                        <p className="text-xs font-black uppercase tracking-[0.2em] text-white/35">Advertiser and Payment</p>
+                        <div className="mt-4 space-y-3 text-sm text-blue-100/70">
+                          <p className="flex items-start gap-2">
+                            <UserRound size={15} className="mt-0.5 text-sky-300" />
+                            <span>{booking.advertiser?.name || "Unknown advertiser"} ({booking.advertiser?.email || "No email"})</span>
+                          </p>
+                          <p className="flex items-start gap-2">
+                            <CreditCard size={15} className="mt-0.5 text-sky-300" />
+                            <span>{booking.paymentMethod || "bank_transfer"} · Ref: {booking.gatewayReference || booking.gatewayTransactionId || "N/A"}</span>
+                          </p>
+                          <p className="flex items-start gap-2">
+                            <CheckCircle2 size={15} className="mt-0.5 text-sky-300" />
+                            <span>Customer: {booking.customerName || booking.advertiser?.name || "N/A"} · {booking.customerPhone || booking.advertiser?.phone || "No phone"}</span>
+                          </p>
+                          <p className="flex items-start gap-2">
+                            <Calendar size={15} className="mt-0.5 text-sky-300" />
+                            <span>{booking.durationMinutes || 0} mins at {formatPkr(ratePerMinute)} / slot</span>
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-white/10 bg-[#0A0F1C]/60 p-4">
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-white/35">Creative Details</p>
+                      <div className="mt-3 grid gap-3 text-sm text-blue-100/70">
+                        <p>{booking.ad?.description || "No ad description was provided."}</p>
+                        <div className="flex flex-wrap gap-3 text-xs font-bold uppercase tracking-[0.18em] text-white/45">
+                          <span>{booking.ad?.mediaType || "media"}</span>
+                          <span>{booking.ad?.duration || 30}s loop</span>
+                          <span>{booking.ad?.approvalStatus || "pending"}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-3">
+                      {(stage === "pending_review" || stage === "approved" || stage === "proof_submitted") && (
+                        <button
+                          type="button"
+                          onClick={() => navigate("/admin/bookings")}
+                          className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-5 py-3 text-sm font-black text-sky-200 hover:bg-sky-500/20"
+                        >
+                          Open Booking Queue
+                        </button>
+                      )}
+
+                      {stage === "verified" && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleDisplayNow(booking._id)}
+                            disabled={workingId === booking._id}
+                            className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/15 px-5 py-3 text-sm font-black text-emerald-200 hover:bg-emerald-500/25 disabled:opacity-50"
+                          >
+                            <MonitorPlay size={16} /> Display Now
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleStatusUpdate(booking._id, "active")}
+                            disabled={workingId === booking._id}
+                            className="rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-5 py-3 text-sm font-black text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-50"
+                          >
+                            Mark Live
+                          </button>
+                        </>
+                      )}
+
+                      {stage === "active" && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleDisplayNow(booking._id)}
+                            disabled={workingId === booking._id}
+                            className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/15 px-5 py-3 text-sm font-black text-emerald-200 hover:bg-emerald-500/25 disabled:opacity-50"
+                          >
+                            <MonitorPlay size={16} /> Display Now
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleStatusUpdate(booking._id, "completed")}
+                            disabled={workingId === booking._id}
+                            className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-5 py-3 text-sm font-black text-blue-200 hover:bg-blue-500/20 disabled:opacity-50"
+                          >
+                            Mark Completed
+                          </button>
+                        </>
+                      )}
+
+                      {(stage === "verified" || stage === "active") && (
+                        <button
+                          type="button"
+                          onClick={() => handleStatusUpdate(booking._id, "cancelled")}
+                          disabled={workingId === booking._id}
+                          className="rounded-xl border border-slate-500/30 bg-slate-500/10 px-5 py-3 text-sm font-black text-slate-200 hover:bg-slate-500/20 disabled:opacity-50"
+                        >
+                          Cancel Schedule
+                        </button>
+                      )}
+
+                      {stage === "cancelled" && (
+                        <div className="inline-flex items-center gap-2 rounded-xl border border-slate-500/25 bg-slate-500/10 px-4 py-3 text-sm font-bold text-slate-200">
+                          <XCircle size={16} className="text-slate-300" />
+                          This booking was cancelled and needs a fresh request.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })}
         </div>
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
-          <p className="text-gray-500 text-sm">Pending</p>
-          <p className="text-2xl font-bold">{bookings.filter(b => b.status === "pending").length}</p>
-        </div>
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
-          <p className="text-gray-500 text-sm">Confirmed</p>
-          <p className="text-2xl font-bold">{bookings.filter(b => b.status === "confirmed").length}</p>
-        </div>
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
-          <p className="text-gray-500 text-sm">Completed</p>
-          <p className="text-2xl font-bold">{bookings.filter(b => b.status === "completed").length}</p>
-        </div>
-      </motion.div>
+      )}
     </div>
   );
-};
-
-export default AdminSchedule;
+}

@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Base URL for backend API
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 // Create Axios instance
 const API = axios.create({
@@ -12,9 +12,12 @@ const API = axios.create({
 // Request interceptor: attach JWT token
 API.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
+    const token = sessionStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+    if (typeof window !== 'undefined' && window.location?.origin) {
+      config.headers['X-Client-Origin'] = window.location.origin;
     }
     return config;
   },
@@ -26,7 +29,7 @@ API.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('token');
+      sessionStorage.removeItem('token');
       window.location.href = '/login';
     }
     return Promise.reject(error);
@@ -36,6 +39,10 @@ API.interceptors.response.use(
 // ================== AUTHENTICATION ==================
 export const register = (userData) => API.post('/auth/register', userData);
 export const login = (credentials) => API.post('/auth/login', credentials);
+export const verifyEmailToken = (token) => API.get(`/auth/verify-email?token=${encodeURIComponent(token)}`);
+export const resendVerificationEmail = (data) => API.post('/auth/resend-verification', data);
+export const requestPasswordReset = (data) => API.post('/auth/forgot-password', data);
+export const resetPassword = (token, data) => API.post(`/auth/reset-password/${token}`, data);
 export const getProfile = () => API.get('/auth/me');
 export const updateProfile = (data) => API.put('/auth/profile', data);
 export const changePassword = (data) => API.put('/auth/change-password', data);
@@ -80,10 +87,16 @@ export const deleteAdAdmin = (id) => API.delete(`/admin/ads/${id}`); // alias
 // Bookings (admin)
 export const getBookings = () => API.get('/admin/bookings');
 export const updateBookingStatus = (id, status) => API.put(`/admin/bookings/${id}/status`, { status });
+export const approveBooking = (id, data = {}) => API.put(`/admin/bookings/${id}/approve`, data);
+export const rejectBooking = (id, data = {}) => API.put(`/admin/bookings/${id}/reject`, data);
+export const confirmBookingPayment = (id, data = {}) => API.put(`/admin/bookings/${id}/confirm-payment`, data);
+export const rejectBookingPayment = (id, data = {}) => API.put(`/admin/bookings/${id}/reject-payment`, data);
 
 // Transactions (admin)
 export const getTransactions = () => API.get('/admin/transactions');
 export const updateTransactionStatus = (id, status) => API.put(`/admin/transactions/${id}`, { status });
+export const getAdminPaymentSettings = () => API.get('/admin/payment-settings');
+export const updateAdminPaymentSettings = (data) => API.put('/admin/payment-settings', data);
 
 // Users (admin)
 export const getUsers = () => API.get('/admin/users');
@@ -122,6 +135,8 @@ export const getBillboardsByCity = (city) => API.get(`/advertiser/billboards?cit
 export const getBillboardAvailability = (id, date) => API.get(`/advertiser/billboard/${id}/availability?date=${date}`);
 export const createBooking = (data) => API.post('/advertiser/bookings', data);
 export const getMyBookings = () => API.get('/advertiser/my-bookings');
+export const cancelBooking = (id) => API.put(`/advertiser/bookings/${id}/cancel`);
+export const displayMyBooking = (id) => API.post(`/advertiser/bookings/${id}/display`);
 export const getMyAdsAdvertiser = () => API.get('/advertiser/my-ads');
 export const getPayments = () => API.get('/advertiser/payments');
 export const processPayment = (data) => API.post('/advertiser/payment', data);
@@ -132,7 +147,21 @@ export const getAdvertiserNotifications = () => API.get('/advertiser/notificatio
 export const markAdvertiserNotificationRead = (id) => API.put(`/advertiser/notifications/${id}/read`);
 export const markAllAdvertiserNotificationsRead = () => API.put('/advertiser/notifications/read-all');
 export const clearAllAdvertiserNotifications = () => API.delete('/advertiser/notifications');
-export const submitManualPayment = (data) => API.post('/advertiser/submit-payment', data);
+export const submitManualPayment = (formData) =>
+  API.post('/advertiser/submit-payment', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+export const createPaymentIntent = (data) => API.post('/advertiser/create-payment-intent', data);
+export const confirmPayment = (data) => API.post('/advertiser/confirm-payment', data);
+export const getCheckoutConfig = (billboardId) => API.get(`/payments/checkout-config/${billboardId}`);
+export const prepareBookingCheckout = (data) => API.post('/payments/prepare-booking', data);
+export const requestBookingPaymentCode = (data) => API.post('/payments/payfast/initiate', data);
+export const verifyBookingPaymentCode = (data) => API.post('/payments/payfast/confirm', data);
+export const resendBookingPaymentCode = (data) => API.post('/payments/payfast/sync-status', data);
+export const initiatePayFastPayment = requestBookingPaymentCode;
+export const confirmPayFastPayment = verifyBookingPaymentCode;
+export const syncPayFastPaymentStatus = resendBookingPaymentCode;
+
 // Aliases for simpler naming in components
 export const getNotifications = getAdvertiserNotifications;
 export const markNotificationRead = markAdvertiserNotificationRead;

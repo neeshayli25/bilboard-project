@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, X, Video, Image as ImageIcon, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import { Upload, X, AlertCircle, Loader2, CheckCircle } from "lucide-react";
 import { uploadAd } from "../../api";
 
 export default function UploadAd() {
@@ -75,7 +75,6 @@ export default function UploadAd() {
     try {
       await uploadAd(formData);
       setSuccess("Ad uploaded successfully! It will be reviewed by admin.");
-      // Reset form
       setTitle("");
       setDescription("");
       setDuration(30);
@@ -88,59 +87,55 @@ export default function UploadAd() {
   };
 
   return (
-    <div className="max-w-3xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">Upload Advertisement</h1>
-        <p className="text-gray-500 mt-1">Create a new ad for your campaign</p>
+    <div className="max-w-3xl mx-auto h-full px-4 md:px-0">
+      <div className="mb-8">
+        <h1 className="text-3xl font-display font-bold text-white">Upload Advertisement</h1>
+        <p className="text-textMuted mt-2 text-sm">Create a new ad for your campaign, ready to be scheduled to any billboard.</p>
       </div>
 
-      <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-5">
-        {/* Title */}
+      <form onSubmit={handleSubmit} className="bg-darkCard rounded-2xl shadow-xl border border-white/5 p-8 space-y-6">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Ad Title *</label>
+          <label className="block text-sm font-medium text-textMuted mb-2 ml-1">Ad Title *</label>
           <input
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
-            placeholder="e.g., Summer Sale 2025"
+            className="w-full px-4 py-3 bg-darkBg border border-white/10 rounded-xl text-white outline-none focus:border-primary transition"
+            placeholder="e.g., Summer Sale 2026"
             required
           />
         </div>
 
-        {/* Description */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Description *</label>
+          <label className="block text-sm font-medium text-textMuted mb-2 ml-1">Description *</label>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows="3"
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
+            className="w-full px-4 py-3 bg-darkBg border border-white/10 rounded-xl text-white outline-none focus:border-primary transition"
             placeholder="Describe your advertisement..."
             required
           />
         </div>
 
-        {/* Duration */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Duration (seconds)</label>
+          <label className="block text-sm font-medium text-textMuted mb-2 ml-1">Duration (seconds)</label>
           <input
             type="number"
             value={duration}
             onChange={(e) => setDuration(parseInt(e.target.value))}
             min="5"
             max="120"
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
+            className="w-full px-4 py-3 bg-darkBg border border-white/10 rounded-xl text-white outline-none focus:border-primary transition"
           />
-          <p className="text-xs text-gray-500 mt-1">Between 5 and 120 seconds</p>
+          <p className="text-xs text-textMuted mt-2 ml-1">Between 5 and 120 seconds</p>
         </div>
 
-        {/* File Upload */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Media File *</label>
+          <label className="block text-sm font-medium text-textMuted mb-2 ml-1">Media File *</label>
           <div
-            className={`relative border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${
-              isDragging ? "border-indigo-500 bg-indigo-50" : "border-gray-300 hover:border-indigo-400"
+            className={`relative border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all ${
+              isDragging ? "border-primary bg-primary/10" : "border-white/10 hover:border-primary/50 bg-darkBg/50"
             }`}
             onDrop={handleDrop}
             onDragOver={handleDragOver}
@@ -155,65 +150,63 @@ export default function UploadAd() {
               onChange={(e) => handleFileChange(e.target.files[0])}
             />
             {preview ? (
-              <div className="relative">
+              <div className="relative inline-block">
                 {file?.type.startsWith("image/") ? (
-                  <img src={preview} alt="Preview" className="max-h-48 mx-auto rounded-lg shadow-sm" />
+                  <img src={preview} alt="Preview" className="max-h-60 mx-auto rounded-xl shadow-lg border border-white/10" />
                 ) : (
-                  <video src={preview} controls className="max-h-48 mx-auto rounded-lg shadow-sm" />
+                  <video src={preview} controls className="max-h-60 mx-auto rounded-xl shadow-lg border border-white/10" />
                 )}
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); removeFile(); }}
-                  className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md hover:bg-red-600 transition"
+                  className="absolute -top-3 -right-3 bg-danger text-white rounded-full p-1.5 shadow-lg hover:scale-110 transition"
                 >
-                  <X size={16} />
+                  <X size={14} />
                 </button>
               </div>
             ) : (
-              <div className="space-y-2">
-                <Upload className="mx-auto h-12 w-12 text-gray-400" />
-                <p className="text-sm text-gray-600">Click or drag & drop to upload</p>
-                <p className="text-xs text-gray-400">PNG, JPG, GIF, WEBP, MP4, MOV, AVI up to 50MB</p>
+              <div className="space-y-4 py-6">
+                <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mx-auto text-primary">
+                  <Upload size={28} />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-white mb-1">Click or drag & drop to upload</p>
+                  <p className="text-xs text-textMuted">PNG, JPG, GIF, WEBP, MP4, MOV, AVI (Max 50MB)</p>
+                </div>
               </div>
             )}
           </div>
         </div>
 
-        {/* Messages */}
         <AnimatePresence>
           {error && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm"
+            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+              className="flex items-center gap-3 p-4 bg-danger/10 border border-danger/30 rounded-xl text-danger text-sm"
             >
-              <AlertCircle size={16} />
+              <AlertCircle size={18} />
               {error}
             </motion.div>
           )}
           {success && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm"
+            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+              className="flex items-center gap-3 p-4 bg-success/10 border border-success/30 rounded-xl text-success text-sm"
             >
-              <CheckCircle size={16} />
+              <CheckCircle size={18} />
               {success}
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Submit Button */}
-        <button
+        <motion.button
+          whileHover={{ scale: 1.01 }}
+          whileTap={{ scale: 0.99 }}
           type="submit"
           disabled={loading}
-          className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full flex items-center justify-center gap-2 bg-primary hover:bg-blue-600 text-white font-medium py-4 rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-primary/20 mt-4"
         >
-          {loading ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}
+          {loading ? <Loader2 size={20} className="animate-spin" /> : <Upload size={20} />}
           {loading ? "Uploading..." : "Upload Advertisement"}
-        </button>
+        </motion.button>
       </form>
     </div>
   );

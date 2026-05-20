@@ -20,6 +20,10 @@ const adSchema = new mongoose.Schema(
       enum: ['image', 'video'],
       required: true,
     },
+    duration: {
+      type: Number,
+      default: 30,
+    },
     thumbnailUrl: {
       type: String,
       default: '', // Optional: for video preview thumbnails

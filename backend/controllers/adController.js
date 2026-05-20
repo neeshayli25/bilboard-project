@@ -19,7 +19,7 @@ const createAd = async (req, res) => {
       throw new Error('Please upload an image or video');
     }
 
-    const mediaUrl = `/uploads/ads/${req.file.filename}`;
+    const mediaUrl = req.file.storageUrl || `/uploads/ads/${req.file.filename}`;
     const mediaType = getMediaType(req.file.mimetype);
 
     const ad = await Ad.create({
@@ -65,7 +65,7 @@ const getAllAds = async (req, res) => {
 
   const total = await Ad.countDocuments();
   const ads = await Ad.find()
-    .populate('advertiser', 'name email')
+    .populate('advertiser', 'name email phone organization')
     .limit(limit)
     .skip(startIndex)
     .sort({ createdAt: -1 });

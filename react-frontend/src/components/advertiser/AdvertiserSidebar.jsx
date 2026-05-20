@@ -1,242 +1,202 @@
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import {
-  LayoutDashboard, Monitor, PlusCircle, List, Upload, CreditCard, FileText, ChartBar, Bell, User, LogOut, Menu, X, ChevronRight, Sun, Moon
+  LayoutDashboard, Monitor, Calendar,
+  CreditCard, FileText, Bell, User, LogOut,
+  Menu, X, ChevronRight, Sparkles, Settings
 } from "lucide-react";
 import { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { getProfile } from "../../api";
 
-const menuItems = [
-  { path: "/advertiser", label: "Dashboard", icon: LayoutDashboard, color: "#6366f1" },
-  { path: "/advertiser/billboards", label: "Billboards", icon: Monitor, color: "#0ea5e9" },
-  { path: "/advertiser/my-bookings", label: "My Bookings", icon: PlusCircle, color: "#10b981" },
-  { path: "/advertiser/upload", label: "Upload Ad", icon: Upload, color: "#f59e0b" },
-  { path: "/advertiser/my-ads", label: "My Ads", icon: List, color: "#ec4899" },
-  { path: "/advertiser/payments", label: "Payments", icon: CreditCard, color: "#8b5cf6" },
-  { path: "/advertiser/invoices", label: "Invoices", icon: FileText, color: "#14b8a6" },
-  { path: "/advertiser/reports", label: "Reports", icon: ChartBar, color: "#f97316" },
-  { path: "/advertiser/notifications", label: "Notifications", icon: Bell, color: "#f97316" },
-  { path: "/advertiser/profile", label: "Profile", icon: User, color: "#64748b" },
+const MENU_ITEMS = [
+  { path: "/advertiser",              label: "Dashboard",    icon: LayoutDashboard, color: "#6366f1", end: true },
+  { path: "/advertiser/create-ad",    label: "Create Ad",    icon: FileText,        color: "#f59e0b" },
+  { path: "/advertiser/create-booking", label: "Create Booking", icon: Calendar,    color: "#38bdf8" },
+  { path: "/advertiser/billboards",   label: "Billboards",   icon: Monitor,         color: "#0ea5e9" },
+  { path: "/advertiser/my-bookings",  label: "My Bookings",  icon: Calendar,        color: "#10b981" },
+  { path: "/advertiser/payments",     label: "Payments",     icon: CreditCard,      color: "#8b5cf6" },
+  { path: "/advertiser/invoices",     label: "Invoices",     icon: FileText,        color: "#14b8a6" },
+  { path: "/advertiser/notifications",label: "Notifications",icon: Bell,            color: "#f97316" },
+  { path: "/advertiser/profile",      label: "Profile",      icon: User,            color: "#94a3b8" },
+  { path: "/advertiser/settings",     label: "Settings",     icon: Settings,        color: "#64748b" },
 ];
 
+
+const SIDEBAR_W  = 280;
+const COLLAPSED_W = 88;
+
 export default function AdvertiserSidebar({ isOpen, setIsOpen }) {
-  const navigate = useNavigate();
-  const [advertiserName, setAdvertiserName] = useState("Advertiser");
-  const [darkMode, setDarkMode] = useState(false);
+  const navigate   = useNavigate();
+  const location   = useLocation();
+  const [name, setName] = useState("Advertiser");
+  const [email, setEmail] = useState("");
 
   useEffect(() => {
-    const fetchProfile = async () => {
-      try {
-        const res = await getProfile();
-        setAdvertiserName(res.data.name);
-      } catch (err) {
-        console.error("Failed to load profile", err);
-      }
-    };
-    fetchProfile();
+    getProfile()
+      .then(r => { setName(r.data.name || "Advertiser"); setEmail(r.data.email || ""); })
+      .catch(() => {});
   }, []);
-
-  // Load saved theme from localStorage on mount
-  useEffect(() => {
-    const savedTheme = localStorage.getItem("theme");
-    const isDark = savedTheme === "dark";
-    setDarkMode(isDark);
-    if (isDark) {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-  }, []);
-
-  // Apply theme changes
-  useEffect(() => {
-    if (darkMode) {
-      document.documentElement.classList.add("dark");
-      localStorage.setItem("theme", "dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-      localStorage.setItem("theme", "light");
-    }
-  }, [darkMode]);
 
   const handleLogout = () => {
-    localStorage.removeItem("token");
+    sessionStorage.clear();
     navigate("/login", { replace: true });
   };
 
+  const initials = name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
+
   return (
-    <div
-      className={`fixed top-0 left-0 h-full transition-all duration-300 z-50 flex flex-col`}
+    <motion.div
+      animate={{ width: isOpen ? SIDEBAR_W : COLLAPSED_W }}
+      transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+      className="fixed top-0 left-0 h-full z-50 flex flex-col overflow-hidden"
       style={{
-        width: isOpen ? "260px" : "72px",
-        background: "linear-gradient(180deg, #ffffff 0%, #f8faff 100%)",
-        borderRight: "1px solid #e8edf5",
-        boxShadow: "4px 0 24px rgba(99,102,241,0.06)",
+        background: "linear-gradient(180deg, #0D1525 0%, #0A0F1C 100%)",
+        borderRight: "1px solid rgba(255,255,255,0.05)",
+        boxShadow: "4px 0 30px rgba(0,0,0,0.4)",
       }}
     >
-      {/* Header */}
-      <div
-        className="flex items-center justify-between px-4 py-4"
-        style={{ borderBottom: "1px solid #e8edf5", minHeight: "68px" }}
-      >
-        {isOpen && (
-          <div className="flex items-center gap-2">
-            <div
-              className="flex items-center justify-center rounded-xl"
-              style={{
-                width: 36, height: 36,
-                background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-              }}
-            >
-              <Monitor size={18} color="#fff" />
-            </div>
-            <div>
-              <p style={{ fontSize: 15, fontWeight: 700, color: "#1e1b4b", lineHeight: 1.2 }}>CDBMS</p>
-              <p style={{ fontSize: 11, color: "#6366f1", fontWeight: 500, letterSpacing: "0.05em" }}>ADVERTISER</p>
-            </div>
-          </div>
-        )}
+      {/* ── Logo / Toggle ─────────────────────────────── */}
+      <div className="flex items-center justify-between px-4 border-b border-white/5 flex-shrink-0" style={{ height: 72 }}>
+        <AnimatePresence>
+          {isOpen && (
+            <motion.div initial={{ opacity: 0, x:-10 }} animate={{ opacity:1, x:0 }} exit={{ opacity:0, x:-10 }} transition={{ duration:0.2 }}
+              className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)" }}>
+                <Sparkles size={18} color="#fff" />
+              </div>
+              <div>
+                <p className="text-[15px] font-black text-white leading-tight">CDBMS</p>
+                <p className="text-[10px] font-bold tracking-[0.2em] text-indigo-400">ADVERTISER</p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className="flex items-center justify-center rounded-lg transition-all"
-          style={{
-            width: 36, height: 36,
-            background: "#f1f5ff",
-            color: "#6366f1",
-            border: "1px solid #e0e7ff",
-            marginLeft: isOpen ? 0 : "auto",
-            marginRight: isOpen ? 0 : "auto",
-          }}
+          className="w-9 h-9 rounded-xl flex items-center justify-center transition-all bg-white/5 hover:bg-white/10 text-white/50 hover:text-white border border-white/10 flex-shrink-0"
+          style={{ marginLeft: isOpen ? 0 : "auto", marginRight: isOpen ? 0 : "auto" }}
         >
           {isOpen ? <X size={18} /> : <Menu size={18} />}
         </button>
       </div>
 
-      {/* Advertiser Avatar */}
-      {isOpen && (
-        <div className="mx-4 my-4 p-3 rounded-xl flex items-center gap-3"
-          style={{ background: "#f1f5ff", border: "1px solid #e0e7ff" }}>
-          <div className="flex items-center justify-center rounded-full"
-            style={{ width: 38, height: 38, background: "linear-gradient(135deg, #6366f1, #8b5cf6)", flexShrink: 0 }}>
-            <span style={{ color: "#fff", fontWeight: 700, fontSize: 15 }}>
-              {advertiserName.charAt(0).toUpperCase()}
-            </span>
+      {/* ── User Card ─────────────────────────────────── */}
+      <button 
+        onClick={() => navigate("/advertiser/profile")}
+        className={`w-[stretch] text-left mx-3 my-3 rounded-2xl overflow-hidden flex-shrink-0 transition-all duration-300 hover:bg-white/5 cursor-pointer ${isOpen ? "p-4" : "p-2"}`}
+        style={{ background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.15)" }}>
+        <div className={`flex items-center ${isOpen ? "gap-3" : "justify-center"}`}>
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 font-black text-white text-sm"
+            style={{ background: "linear-gradient(135deg,#6366f1,#a855f7)" }}>
+            {initials}
           </div>
-          <div style={{ overflow: "hidden" }}>
-            <p style={{ fontWeight: 600, fontSize: 13, color: "#1e1b4b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {advertiserName}
-            </p>
-            <p style={{ fontSize: 11, color: "#6366f1" }}>Advertiser</p>
-          </div>
-        </div>
-      )}
-
-      {/* Section label */}
-      {isOpen && (
-        <p style={{ fontSize: 10, fontWeight: 600, color: "#a5b4fc", letterSpacing: "0.1em", padding: "0 20px 8px" }}>
-          MAIN MENU
-        </p>
-      )}
-
-      {/* Nav Items */}
-      <nav className="flex flex-col gap-1 px-3 flex-1 overflow-y-auto" style={{ scrollbarWidth: "none" }}>
-        {menuItems.map((item) => (
-          <NavLink
-            key={item.path}
-            to={item.path}
-            end={item.path === "/advertiser"}
-            className="flex items-center rounded-xl transition-all duration-200 group"
-            style={({ isActive }) => ({
-              gap: isOpen ? 12 : 0,
-              padding: isOpen ? "10px 14px" : "10px 0",
-              justifyContent: isOpen ? "flex-start" : "center",
-              background: isActive ? `${item.color}15` : "transparent",
-              border: isActive ? `1px solid ${item.color}30` : "1px solid transparent",
-              color: isActive ? item.color : "#64748b",
-              fontWeight: isActive ? 600 : 400,
-              textDecoration: "none",
-            })}
-          >
-            {({ isActive }) => (
-              <>
-                <div
-                  className="flex items-center justify-center rounded-lg transition-all"
-                  style={{
-                    width: 34, height: 34, flexShrink: 0,
-                    background: isActive ? `${item.color}20` : "transparent",
-                  }}
-                >
-                  <item.icon size={18} style={{ color: isActive ? item.color : "#94a3b8" }} />
-                </div>
-                {isOpen && (
-                  <>
-                    <span style={{ fontSize: 13.5, flex: 1 }}>{item.label}</span>
-                    {isActive && <ChevronRight size={14} style={{ color: item.color }} />}
-                  </>
-                )}
-              </>
+          <AnimatePresence>
+            {isOpen && (
+              <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }} className="min-w-0">
+                <p className="text-sm font-bold text-white truncate">{name}</p>
+                <p className="text-[10px] text-indigo-300/70 font-medium truncate">{email || "Advertiser Account"}</p>
+              </motion.div>
             )}
-          </NavLink>
-        ))}
+          </AnimatePresence>
+        </div>
+      </button>
+
+      {/* ── Section Label ─────────────────────────────── */}
+      <AnimatePresence>
+        {isOpen && (
+          <motion.p initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
+            className="px-5 pb-2 text-[10px] font-black text-white/20 uppercase tracking-[0.18em]">
+            Main Menu
+          </motion.p>
+        )}
+      </AnimatePresence>
+
+      {/* ── Nav Items ─────────────────────────────────── */}
+      <nav className="flex-1 overflow-y-auto px-3 flex flex-col gap-1" style={{ scrollbarWidth: "none" }}>
+        {MENU_ITEMS.map(item => {
+          const isActive = item.end
+            ? location.pathname === item.path
+            : location.pathname.startsWith(item.path);
+          const Icon = item.icon;
+          return (
+            <NavLink key={item.path} to={item.path} end={item.end}
+              className="flex items-center rounded-2xl transition-all duration-200 group relative"
+              style={{
+                gap: isOpen ? 12 : 0,
+                padding: isOpen ? "11px 14px" : "11px 0",
+                justifyContent: isOpen ? "flex-start" : "center",
+                background: isActive ? `${item.color}18` : "transparent",
+                border: isActive ? `1px solid ${item.color}35` : "1px solid transparent",
+                textDecoration: "none",
+              }}
+            >
+              {/* Active left bar */}
+              {isActive && (
+                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 rounded-r-full"
+                  style={{ backgroundColor: item.color }} />
+              )}
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-all"
+                style={{ background: isActive ? `${item.color}25` : "transparent" }}>
+                <Icon size={18} style={{ color: isActive ? item.color : "#475569" }} />
+              </div>
+              <AnimatePresence>
+                {isOpen && (
+                  <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
+                    className="flex items-center flex-1 min-w-0">
+                    <span className="text-[13.5px] font-semibold flex-1"
+                      style={{ color: isActive ? "#fff" : "#64748b" }}>
+                      {item.label}
+                    </span>
+                    {isActive && <ChevronRight size={14} style={{ color: item.color }} />}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              {/* Tooltip when collapsed */}
+              {!isOpen && (
+                <div className="absolute left-full ml-3 px-3 py-1.5 rounded-xl text-xs font-bold text-white opacity-0 group-hover:opacity-100 pointer-events-none transition-all z-50 whitespace-nowrap"
+                  style={{ background: "#131A2A", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 4px 20px rgba(0,0,0,0.4)" }}>
+                  {item.label}
+                </div>
+              )}
+            </NavLink>
+          );
+        })}
       </nav>
 
-      {/* Bottom buttons: Dark mode toggle + Logout */}
-      <div className="px-3 py-4 space-y-2" style={{ borderTop: "1px solid #e8edf5" }}>
-        <button
-          onClick={() => setDarkMode(!darkMode)}
-          className="flex items-center rounded-xl transition-all duration-200 w-full"
+      {/* ── Bottom Logout ──────────────────────────────── */}
+      <div className="px-3 py-4 border-t border-white/5 flex-shrink-0">
+        <button onClick={handleLogout}
+          className="flex items-center w-full rounded-2xl transition-all duration-200 group relative"
           style={{
             gap: isOpen ? 12 : 0,
-            padding: isOpen ? "10px 14px" : "10px 0",
+            padding: isOpen ? "11px 14px" : "11px 0",
             justifyContent: isOpen ? "flex-start" : "center",
             background: "transparent",
             border: "1px solid transparent",
-            color: "#64748b",
-            cursor: "pointer",
           }}
-          onMouseEnter={e => {
-            e.currentTarget.style.background = "#f1f5ff";
-            e.currentTarget.style.border = "1px solid #e0e7ff";
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.background = "transparent";
-            e.currentTarget.style.border = "1px solid transparent";
-          }}
+          onMouseEnter={e => { e.currentTarget.style.background = "rgba(239,68,68,0.1)"; e.currentTarget.style.border = "1px solid rgba(239,68,68,0.2)"; }}
+          onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.border = "1px solid transparent"; }}
         >
-          <div className="flex items-center justify-center rounded-lg"
-            style={{ width: 34, height: 34, flexShrink: 0, background: "#f1f5ff" }}>
-            {darkMode ? <Sun size={18} color="#f59e0b" /> : <Moon size={18} color="#6366f1" />}
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-red-500/10">
+            <LogOut size={18} className="text-red-400" />
           </div>
-          {isOpen && <span style={{ fontSize: 13.5, fontWeight: 500 }}>{darkMode ? "Light Mode" : "Dark Mode"}</span>}
-        </button>
-
-        <button
-          onClick={handleLogout}
-          className="flex items-center rounded-xl transition-all duration-200 w-full"
-          style={{
-            gap: isOpen ? 12 : 0,
-            padding: isOpen ? "10px 14px" : "10px 0",
-            justifyContent: isOpen ? "flex-start" : "center",
-            background: "transparent",
-            border: "1px solid transparent",
-            color: "#ef4444",
-            cursor: "pointer",
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.background = "#fef2f2";
-            e.currentTarget.style.border = "1px solid #fecaca";
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.background = "transparent";
-            e.currentTarget.style.border = "1px solid transparent";
-          }}
-        >
-          <div className="flex items-center justify-center rounded-lg"
-            style={{ width: 34, height: 34, flexShrink: 0, background: "#fef2f2" }}>
-            <LogOut size={18} color="#ef4444" />
-          </div>
-          {isOpen && <span style={{ fontSize: 13.5, fontWeight: 500 }}>Logout</span>}
+          <AnimatePresence>
+            {isOpen && (
+              <motion.span initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
+                className="text-[13.5px] font-semibold text-red-400">
+                Sign Out
+              </motion.span>
+            )}
+          </AnimatePresence>
+          {!isOpen && (
+            <div className="absolute left-full ml-3 px-3 py-1.5 rounded-xl text-xs font-bold text-red-400 opacity-0 group-hover:opacity-100 pointer-events-none transition-all z-50 whitespace-nowrap"
+              style={{ background: "#131A2A", border: "1px solid rgba(239,68,68,0.2)" }}>
+              Sign Out
+            </div>
+          )}
         </button>
       </div>
-    </div>
+    </motion.div>
   );
 }

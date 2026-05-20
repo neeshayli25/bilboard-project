@@ -11,8 +11,15 @@ import {
   Image as ImageIcon,
   Video,
   ChevronDown,
+  Trash2,
+  CheckSquare,
+  Mail,
+  Phone,
+  UserRound,
+  Building2,
 } from "lucide-react";
 import { getAllAds, approveAd, rejectAd, deleteAd } from "../../services/adminApi";
+import { buildMediaUrl } from "../../utils/media";
 
 const AdminAds = () => {
   const [ads, setAds] = useState([]);
@@ -24,8 +31,6 @@ const AdminAds = () => {
   const [previewAd, setPreviewAd] = useState(null);
   const [mediaUrl, setMediaUrl] = useState("");
 
-  const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
-
   useEffect(() => {
     loadAds();
   }, []);
@@ -34,34 +39,41 @@ const AdminAds = () => {
     setLoading(true);
     try {
       const res = await getAllAds();
-      setAds(res.data);
+      // Ensure we get an array even if the backend returns nothing
+      setAds(res.data || []);
     } catch (err) {
-      console.error(err);
+      console.error("Ads Loading Error:", err);
     } finally {
       setLoading(false);
     }
   };
 
   const handleApprove = async (id) => {
-    await approveAd(id);
-    loadAds();
+    try {
+      await approveAd(id);
+      loadAds();
+    } catch(e) { console.error(e); alert("Approval failed."); }
   };
 
   const handleReject = async (id) => {
-    await rejectAd(id);
-    loadAds();
+    try {
+      await rejectAd(id);
+      loadAds();
+    } catch(e) { console.error(e); alert("Rejection failed."); }
   };
 
   const handleDelete = async (id) => {
-    if (window.confirm("Delete this ad?")) {
-      await deleteAd(id);
-      loadAds();
+    if (window.confirm("Permanently delete this advertisement payload? This cannot be undone.")) {
+      try {
+        await deleteAd(id);
+        loadAds();
+      } catch(e) { console.error(e); alert("Deletion failed."); }
     }
   };
 
   const previewAdHandler = (ad) => {
     setPreviewAd(ad);
-    setMediaUrl(`${API_BASE}${ad.mediaUrl}`);
+    setMediaUrl(buildMediaUrl(ad.mediaUrl || ad.imageUrl));
     setPreviewMode(true);
   };
 
@@ -73,278 +85,228 @@ const AdminAds = () => {
 
   // Filtering
   const filteredAds = ads.filter((ad) => {
-    const matchesSearch = ad.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          (ad.campaign?.toLowerCase() || "").includes(searchTerm.toLowerCase());
+    const term = searchTerm.toLowerCase();
+    const matchesSearch = (ad.title?.toLowerCase() || "").includes(term) ||
+                          (ad.campaign?.toLowerCase() || "").includes(term) ||
+                          (ad.advertiser?.name?.toLowerCase() || "").includes(term) ||
+                          (ad.advertiser?.email?.toLowerCase() || "").includes(term) ||
+                          (ad.advertiser?.phone?.toLowerCase() || "").includes(term);
     const matchesStatus = filterStatus === "all" || ad.approvalStatus === filterStatus;
     return matchesSearch && matchesStatus;
   });
 
-  // Mock time slots – replace with real data later
-  const timeSlots = [
-    { day: "Monday", slots: 5 },
-    { day: "Tuesday", slots: 3 },
-    { day: "Wednesday", slots: 7 },
-    { day: "Thursday", slots: 4 },
-    { day: "Friday", slots: 6 },
-    { day: "Saturday", slots: 8 },
-    { day: "Sunday", slots: 2 },
-  ];
-
-  // Animation variants
-  const containerVariants = {
-    hidden: { opacity: 0 },
-    visible: { transition: { staggerChildren: 0.1 } },
-  };
-  const itemVariants = {
-    hidden: { y: 20, opacity: 0 },
-    visible: { y: 0, opacity: 1 },
-  };
+  // Calculate quick stats
+  const pendingCount = ads.filter(a => a.approvalStatus === "pending").length;
+  const approvedCount = ads.filter(a => a.approvalStatus === "approved").length;
 
   return (
-    <div className="min-h-screen bg-blue-400 text-gray-800 p-6">
-      <motion.div
-        initial={{ y: -50, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.6, type: "spring" }}
-        className="mb-8"
-      >
-        <h1 className="text-5xl font-extrabold text-blue-950 drop-shadow-lg">Ad Pulse</h1>
-        <p className="text-blue-800 mt-2 text-lg">Manage incoming ads & available slots</p>
-      </motion.div>
+    <div className="flex flex-col gap-6 h-full bg-darkBg text-textMain relative pb-16 min-h-screen">
+      
+      {/* Background Ambience */}
+      <div className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden z-0">
+        <div className="absolute w-[600px] h-[600px] bg-amber-600 opacity-5 blur-[120px] top-40 right-20 rounded-full mix-blend-screen"></div>
+      </div>
 
-      {/* Search & Filter Bar */}
-      <motion.div
-        initial={{ y: 20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.2 }}
-        className="mb-8 bg-blue-900 rounded-2xl p-5 border border-blue-950 shadow-md"
-      >
-        <div className="flex flex-wrap gap-4 items-center">
-          <div className="flex-1 relative">
-            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-blue-300 w-5 h-5" />
-            <input
-              type="text"
-              placeholder="Search ads or campaigns..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-12 pr-4 py-4 bg-blue-200 border border-blue-300 rounded-xl text-gray-800 placeholder-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400 transition-all"
-            />
+      <div className="relative z-10 w-full">
+        {/* Header Section */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+          <div>
+            <h1 className="text-3xl font-display font-black text-white flex items-center gap-3">
+               <CheckSquare className="text-amber-500"/> Content Moderation
+            </h1>
+            <p className="text-blue-100/60 mt-1">Review, approve, or reject Advertiser media payloads.</p>
           </div>
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className="px-5 py-4 bg-blue-200 hover:bg-blue-300 rounded-xl flex items-center gap-2 transition-all text-blue-900"
-          >
-            <Filter className="w-5 h-5" />
-            Filter
-            <ChevronDown className={`w-4 h-4 transform transition-transform ${showFilters ? 'rotate-180' : ''}`} />
-          </button>
+          <div className="flex gap-4">
+             <div className="bg-[#131A2A]/80 backdrop-blur-sm border border-amber-500/20 rounded-xl px-5 py-3 text-center shadow-[0_0_15px_rgba(245,158,11,0.05)]">
+               <p className="text-[10px] text-amber-200/50 uppercase tracking-widest mb-1 font-bold">Pending Review</p>
+               <p className="text-lg font-black text-amber-400">{pendingCount}</p>
+             </div>
+             <div className="bg-[#131A2A]/80 backdrop-blur-sm border border-emerald-500/20 rounded-xl px-5 py-3 text-center shadow-[0_0_15px_rgba(16,185,129,0.05)]">
+               <p className="text-[10px] text-emerald-200/50 uppercase tracking-widest mb-1 font-bold">Approved Intel</p>
+               <p className="text-lg font-black text-emerald-400">{approvedCount}</p>
+             </div>
+          </div>
         </div>
 
-        <AnimatePresence>
-          {showFilters && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              className="overflow-hidden mt-4 pt-4 border-t border-blue-700"
-            >
-              <div className="flex gap-3">
-                {["all", "pending", "approved", "rejected"].map((status) => (
-                  <button
-                    key={status}
-                    onClick={() => setFilterStatus(status)}
-                    className={`px-4 py-2 rounded-lg capitalize font-medium ${
-                      filterStatus === status
-                        ? "bg-blue-600 text-white"
-                        : "bg-blue-800 text-blue-200 hover:bg-blue-700"
-                    }`}
-                  >
-                    {status}
-                  </button>
-                ))}
-              </div>
-            </motion.div>
+        {/* Search & Filter Modules */}
+        <div className="mb-8 bg-[#131A2A]/80 backdrop-blur-md rounded-2xl p-4 border border-white/5 shadow-[0_0_20px_rgba(0,0,0,0.2)]">
+          <div className="flex flex-col md:flex-row gap-4 items-center">
+            <div className="flex-1 relative w-full">
+              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-blue-500/50 w-5 h-5" />
+              <input
+                type="text"
+                placeholder="Search by ad title, advertiser, email, or phone..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-12 pr-4 py-4 bg-[#0A0F1C] border border-blue-500/20 rounded-xl text-white placeholder-blue-200/30 focus:outline-none focus:border-amber-500/50 transition-colors"
+              />
+            </div>
+            
+            {/* Filter Toggle block */}
+            <div className="flex bg-[#0A0F1C] border border-blue-500/20 rounded-xl overflow-hidden w-full md:w-auto h-full">
+              {["all", "pending", "approved", "rejected"].map((status) => (
+                <button
+                  key={status}
+                  onClick={() => setFilterStatus(status)}
+                  className={`flex-1 md:flex-none px-6 py-4 text-xs font-bold uppercase tracking-widest transition-colors ${
+                    filterStatus === status 
+                    ? "bg-amber-500/20 text-amber-400" 
+                    : "text-blue-200/40 hover:text-blue-200 hover:bg-white/5"
+                  }`}
+                >
+                  {status}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Main Content Area */}
+        <div className="w-full">
+          {loading && !previewMode && (
+             <div className="flex justify-center items-center h-64 text-amber-500/80 animate-pulse font-bold text-xl">Retrieving Ad Payloads...</div>
           )}
-        </AnimatePresence>
-      </motion.div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left: Ads List */}
-        <motion.div
-          variants={containerVariants}
-          initial="hidden"
-          animate="visible"
-          className="lg:col-span-2 space-y-4"
-        >
-          <h2 className="text-2xl font-bold mb-4 flex items-center gap-2 text-blue-900">
-            <span className="w-2 h-8 bg-blue-600 rounded-full"></span>
-            {previewMode ? "Preview Mode" : `All Ads (${filteredAds.length})`}
-          </h2>
-
-          {loading && !previewMode && <div className="text-center py-8 text-blue-800">Loading ads...</div>}
 
           <AnimatePresence mode="wait">
             {previewMode && previewAd ? (
-              // Preview mode
+              // Enhanced Preview Mode
               <motion.div
-                key={previewAd._id}
-                initial={{ opacity: 0, scale: 0.9 }}
+                key="preview-layer"
+                initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                className="bg-blue-200 rounded-2xl p-5 border border-blue-300 shadow-md"
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-[#131A2A]/90 backdrop-blur-xl border border-amber-500/30 rounded-3xl p-6 md:p-10 shadow-[0_0_80px_rgba(245,158,11,0.15)] relative overflow-hidden"
               >
-                <div className="flex justify-between items-start mb-4">
-                  <h3 className="text-xl font-bold text-blue-900">{previewAd.title} - Preview</h3>
-                  <button onClick={closePreview} className="text-blue-700 hover:text-blue-900">
-                    <XCircle className="w-6 h-6" />
+                <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-amber-500/10 blur-[100px] rounded-full pointer-events-none mix-blend-screen"></div>
+
+                <div className="relative z-10 flex justify-between items-center mb-6 border-b border-white/5 pb-4">
+                  <div>
+                    <h3 className="text-2xl font-black text-white">{previewAd.title}</h3>
+                    <p className="text-blue-200/50 text-sm mt-1 uppercase tracking-widest font-bold">Secure Media Vault Viewer</p>
+                  </div>
+                  <button onClick={closePreview} className="text-white/50 hover:text-white bg-white/5 hover:bg-white/10 p-2 rounded-full transition-colors flex items-center justify-center">
+                    <XCircle size={24} />
                   </button>
                 </div>
-                <div className="aspect-video bg-black rounded-lg overflow-hidden">
+                
+                <div className="aspect-video bg-black/60 rounded-2xl overflow-hidden border border-white/10 flex justify-center items-center relative z-10 shadow-inner">
                   {previewAd.mediaType === "video" ? (
-                    <video src={mediaUrl} controls autoPlay onEnded={closePreview} className="w-full h-full object-contain" />
+                    <video src={mediaUrl} controls autoPlay className="max-w-full max-h-full object-contain" />
                   ) : (
-                    <img src={mediaUrl} alt={previewAd.title} className="w-full h-full object-contain" />
+                    <img src={mediaUrl} alt={previewAd.title} className="max-w-full max-h-full object-contain" />
                   )}
                 </div>
-                <p className="mt-3 text-sm text-blue-800">Preview will close automatically when video ends.</p>
+                <div className="relative z-10 flex justify-end mt-4">
+                  <button onClick={closePreview} className="text-sm font-bold text-blue-200/70 hover:text-white transition-colors">Close Preview</button>
+                </div>
               </motion.div>
             ) : (
-              // List of ads
-              filteredAds.map((ad) => (
-                <motion.div
-                  key={ad._id}
-                  variants={itemVariants}
-                  layout
-                  exit={{ opacity: 0, x: -100 }}
-                  whileHover={{ scale: 1.02, y: -2 }}
-                  className="bg-blue-200 rounded-2xl p-5 border border-blue-300 shadow-md transition-all"
-                >
-                  <div className="flex flex-wrap gap-4 justify-between items-start">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <h3 className="text-xl font-bold text-blue-900">{ad.title}</h3>
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                          ad.approvalStatus === 'approved' ? 'bg-green-200 text-green-900 border border-green-400' :
-                          ad.approvalStatus === 'rejected' ? 'bg-red-200 text-red-900 border border-red-400' :
-                          'bg-yellow-200 text-yellow-900 border border-yellow-400'
-                        }`}>
-                          {ad.approvalStatus}
-                        </span>
+              // Ad Grid Layout
+              <motion.div key="grid-layer" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="grid grid-cols-1 xl:grid-cols-2 gap-6 w-full">
+                {filteredAds.map((ad) => (
+                  <div key={ad._id} className="bg-[#131A2A]/80 backdrop-blur-md border border-white/5 hover:border-blue-500/30 transition-all duration-300 rounded-3xl p-6 shadow-[0_0_20px_rgba(0,0,0,0.2)] flex flex-col md:flex-row gap-6 relative group overflow-hidden">
+                    
+                    {/* Status Glow Indication */}
+                    <div className={`absolute top-0 left-0 w-1 h-full ${
+                      ad.approvalStatus === 'approved' ? 'bg-emerald-500 shadow-[0_0_20px_#10b981]' :
+                      ad.approvalStatus === 'rejected' ? 'bg-red-500 shadow-[0_0_20px_#ef4444]' :
+                      'bg-amber-500 shadow-[0_0_20px_#f59e0b]'
+                    }`}></div>
+
+                    {/* Left: Metadata chunk */}
+                    <div className="flex-1 flex flex-col pl-4">
+                      <div className="flex justify-between items-start mb-3">
+                         <div>
+                            <h3 className="text-xl font-bold text-white mb-1 group-hover:text-amber-400 transition-colors">{ad.title || "Untitled Payload"}</h3>
+                            <p className="text-xs font-bold uppercase tracking-widest text-primary mb-3">{ad.campaign || "Unassigned Campaign"}</p>
+                         </div>
+                         <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border ${
+                            ad.approvalStatus === 'approved' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                            ad.approvalStatus === 'rejected' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
+                            'bg-amber-500/10 text-amber-400 border-amber-500/20 animate-pulse'
+                          }`}>
+                            {ad.approvalStatus}
+                          </span>
                       </div>
-                      <p className="text-sm text-blue-800 mb-2">{ad.description}</p>
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm text-blue-800">
-                        <div className="flex items-center gap-1">
-                          {ad.mediaType === 'video' ? <Video className="w-4 h-4" /> : <ImageIcon className="w-4 h-4" />}
-                          {ad.mediaType}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Calendar className="w-4 h-4" />
-                          Upload: {new Date(ad.createdAt).toLocaleDateString()}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Clock className="w-4 h-4" />
-                          {ad.duration ? `${ad.duration}s` : 'N/A'}
+                      
+                      <p className="text-sm text-blue-100/60 leading-relaxed mb-6 line-clamp-2 min-h-[40px]">{ad.description || "No explicit description provided by Advertiser."}</p>
+
+                      <div className="mb-5 rounded-2xl border border-white/8 bg-[#0A0F1C]/70 p-4">
+                        <p className="mb-3 text-[10px] font-black uppercase tracking-[0.22em] text-amber-200/50">Advertiser Details</p>
+                        <div className="grid gap-2 text-xs text-blue-100/60 sm:grid-cols-2">
+                          <div className="flex items-center gap-2">
+                            <UserRound size={14} className="text-amber-400" />
+                            <span>{ad.advertiser?.name || "Unknown advertiser"}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Phone size={14} className="text-amber-400" />
+                            <span>{ad.advertiser?.phone || "No phone added"}</span>
+                          </div>
+                          <div className="flex items-center gap-2 sm:col-span-2">
+                            <Mail size={14} className="text-amber-400" />
+                            <span className="truncate">{ad.advertiser?.email || "No email"}</span>
+                          </div>
+                          {ad.advertiser?.organization && (
+                            <div className="flex items-center gap-2 sm:col-span-2">
+                              <Building2 size={14} className="text-amber-400" />
+                              <span className="truncate">{ad.advertiser.organization}</span>
+                            </div>
+                          )}
                         </div>
                       </div>
-                      <div className="mt-2 text-sm text-blue-700">Advertiser: {ad.advertiser?.name || 'Unknown'}</div>
+                      
+                      <div className="grid grid-cols-2 gap-3 text-xs font-medium text-blue-200/50 mt-auto">
+                        <div className="flex items-center gap-2 bg-[#0A0F1C] px-3 py-2 rounded-lg border border-white/5">
+                          {ad.mediaType === 'video' ? <Video size={14} className="text-primary"/> : <ImageIcon size={14} className="text-primary"/>}
+                          <span className="capitalize">{ad.mediaType || "Image"}</span>
+                        </div>
+                        <div className="flex items-center gap-2 bg-[#0A0F1C] px-3 py-2 rounded-lg border border-white/5">
+                          <Calendar size={14} className="text-primary"/>
+                          <span>{new Date(ad.createdAt).toLocaleDateString()}</span>
+                        </div>
+                      </div>
                     </div>
-                    {/* Action Buttons */}
-                    <div className="flex flex-wrap gap-2">
-                      <motion.button
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.9 }}
-                        onClick={() => handleApprove(ad._id)}
-                        className="p-2 bg-green-600 hover:bg-green-700 rounded-lg text-white"
-                        title="Approve"
-                      >
-                        <CheckCircle className="w-4 h-4" />
-                      </motion.button>
-                      <motion.button
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.9 }}
-                        onClick={() => handleReject(ad._id)}
-                        className="p-2 bg-red-600 hover:bg-red-700 rounded-lg text-white"
-                        title="Reject"
-                      >
-                        <XCircle className="w-4 h-4" />
-                      </motion.button>
-                      <motion.button
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.9 }}
-                        onClick={() => previewAdHandler(ad)}
-                        className="p-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-white"
-                        title="Preview"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </motion.button>
-                      <motion.button
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.9 }}
-                        onClick={() => handleDelete(ad._id)}
-                        className="p-2 bg-gray-600 hover:bg-gray-700 rounded-lg text-white"
-                        title="Delete"
-                      >
-                        <XCircle className="w-4 h-4" />
-                      </motion.button>
+                    
+                    {/* Right: Actions Column */}
+                    <div className="flex flex-row md:flex-col justify-end gap-3 border-t md:border-t-0 md:border-l border-white/5 pt-5 md:pt-0 md:pl-5">
+                      <button onClick={() => previewAdHandler(ad)} className="flex items-center justify-center gap-2 flex-1 md:flex-none p-3 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 rounded-xl transition-all font-bold text-xs" title="Preview Media">
+                        <Eye size={16} /> Preview
+                      </button>
+                      
+                      {ad.approvalStatus === 'pending' && (
+                        <>
+                          <button onClick={() => handleApprove(ad._id)} className="flex items-center justify-center gap-2 flex-1 md:flex-none p-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-xl transition-all font-bold text-xs shadow-[0_0_15px_rgba(16,185,129,0.1)] hover:shadow-[0_0_20px_rgba(16,185,129,0.2)]">
+                            <CheckCircle size={16} /> Approve
+                          </button>
+                          <button onClick={() => handleReject(ad._id)} className="flex items-center justify-center gap-2 flex-1 md:flex-none p-3 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-xl transition-all font-bold text-xs">
+                            <XCircle size={16} /> Reject
+                          </button>
+                        </>
+                      )}
+                      
+                      {ad.approvalStatus !== 'pending' && (
+                         <button onClick={() => handleDelete(ad._id)} className="flex items-center justify-center gap-2 flex-1 md:flex-none p-3 bg-white/5 hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30 text-white/50 border border-white/10 rounded-xl transition-all font-bold text-xs mt-auto">
+                           <Trash2 size={16} /> Purge Record
+                         </button>
+                      )}
                     </div>
+
                   </div>
-                </motion.div>
-              ))
+                ))}
+              </motion.div>
             )}
           </AnimatePresence>
 
+          {/* Empty State Guard */}
           {!previewMode && !loading && filteredAds.length === 0 && (
-            <div className="text-center py-8 text-blue-800">No ads found.</div>
+             <div className="flex flex-col items-center justify-center p-16 bg-[#131A2A]/40 border border-white/5 border-dashed rounded-3xl mt-6">
+                <CheckSquare size={48} className="text-white/10 mb-4" />
+                <h3 className="text-xl font-bold text-white mb-2">No Payloads Found</h3>
+                <p className="text-blue-200/50">There are no advertising payloads matching the current status filter.</p>
+             </div>
           )}
-        </motion.div>
 
-        {/* Right Column: Available Slots (mock, replace with real data later) */}
-        <motion.div
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.3 }}
-          className="space-y-6"
-        >
-          <div className="bg-blue-900 rounded-2xl p-5 border border-blue-950 shadow-md">
-            <h2 className="text-2xl font-bold mb-4 flex items-center gap-2 text-blue-100">
-              <span className="w-2 h-8 bg-blue-300 rounded-full"></span>
-              Available Slots
-            </h2>
-            <div className="space-y-3">
-              {timeSlots.map((slot) => (
-                <motion.div
-                  key={slot.day}
-                  initial={{ width: 0 }}
-                  animate={{ width: "100%" }}
-                  transition={{ duration: 0.5 }}
-                  className="flex items-center gap-3"
-                >
-                  <span className="w-24 text-blue-200">{slot.day}</span>
-                  <div className="flex-1 h-8 bg-blue-700 rounded-full overflow-hidden">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${(slot.slots / 8) * 100}%` }}
-                      transition={{ delay: 0.2, duration: 0.8 }}
-                      className="h-full bg-blue-300 rounded-full"
-                    />
-                  </div>
-                  <span className="text-sm font-bold text-blue-200">{slot.slots} slots</span>
-                </motion.div>
-              ))}
-            </div>
-            <div className="mt-6 p-3 bg-blue-800 border border-blue-700 rounded-lg text-center">
-              <p className="text-sm text-blue-200">Next free slot: <span className="font-bold">Tomorrow 10:00 AM</span></p>
-            </div>
-          </div>
-          <motion.div
-            whileHover={{ scale: 1.02 }}
-            className="bg-blue-900 rounded-2xl p-5 border border-blue-950 shadow-md text-center cursor-pointer"
-          >
-            <Calendar className="w-8 h-8 mx-auto mb-2 text-blue-300" />
-            <h3 className="font-semibold text-blue-100">Schedule New Ad</h3>
-            <p className="text-sm text-blue-200 mt-1">Drag ads to calendar view</p>
-          </motion.div>
-        </motion.div>
+        </div>
       </div>
     </div>
   );

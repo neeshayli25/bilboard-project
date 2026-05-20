@@ -1,13 +1,16 @@
 import axios from 'axios';
 
 const API = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+  baseURL: import.meta.env.VITE_API_URL || '/api'
 });
 
 // Request interceptor: attach JWT token
 API.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = sessionStorage.getItem('token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    config.headers['X-Client-Origin'] = window.location.origin;
+  }
   return config;
 });
 
@@ -16,7 +19,7 @@ API.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('token');
+      sessionStorage.removeItem('token');
       window.location.href = '/login';
     }
     return Promise.reject(error);
@@ -26,6 +29,10 @@ API.interceptors.response.use(
 // ================== AUTHENTICATION ==================
 export const register = (userData) => API.post('/auth/register', userData);
 export const login = (credentials) => API.post('/auth/login', credentials);
+export const verifyEmailToken = (token) => API.get(`/auth/verify-email?token=${encodeURIComponent(token)}`);
+export const resendVerificationEmail = (data) => API.post('/auth/resend-verification', data);
+export const requestPasswordReset = (data) => API.post('/auth/forgot-password', data);
+export const resetPassword = (token, data) => API.post(`/auth/reset-password/${token}`, data);
 export const getProfile = () => API.get('/auth/me');
 export const updateProfile = (data) => API.put('/auth/profile', data);
 export const changePassword = (data) => API.put('/auth/change-password', data);
@@ -36,9 +43,11 @@ export const getRevenueTrend = () => API.get('/admin/revenue-trend');
 
 // ========== ADMIN: BILLBOARD MANAGEMENT ==========
 export const getBillboards = () => API.get('/admin/billboards');
-export const createBillboard = (data) => API.post('/admin/billboards', data);
-export const updateBillboard = (id, data) => API.put(`/admin/billboards/${id}`, data);
+export const createBillboard = (data) => API.post('/admin/billboards', data, { headers: { 'Content-Type': 'multipart/form-data' } });
+export const updateBillboard = (id, data) => API.put(`/admin/billboards/${id}`, data, { headers: { 'Content-Type': 'multipart/form-data' } });
 export const deleteBillboard = (id) => API.delete(`/admin/billboards/${id}`);
+export const getBillboardHardwareStatus = (id) => API.get(`/hardware/status/${id}`);
+export const rotateBillboardDisplayToken = (id) => API.post(`/hardware/status/${id}/rotate-token`);
 
 // ========== ADMIN: AD MANAGEMENT & APPROVALS ==========
 export const getAllAds = () => API.get('/admin/ads');
@@ -51,12 +60,16 @@ export const deleteAd = (id) => API.delete(`/admin/ads/${id}`);
 export const getBookings = () => API.get('/admin/bookings');
 export const updateBookingStatus = (id, status) => API.put(`/admin/bookings/${id}/status`, { status });
 export const getPendingBookings = () => API.get('/admin/bookings?status=pending');
-export const approveBooking = (id) => API.put(`/admin/bookings/${id}/approve`);
-export const rejectBooking = (id) => API.put(`/admin/bookings/${id}/reject`);
+export const approveBooking = (id, data = {}) => API.put(`/admin/bookings/${id}/approve`, data);
+export const rejectBooking = (id, data = {}) => API.put(`/admin/bookings/${id}/reject`, data);
+export const confirmBookingPayment = (id, data = {}) => API.put(`/admin/bookings/${id}/confirm-payment`, data);
+export const rejectBookingPayment = (id, data = {}) => API.put(`/admin/bookings/${id}/reject-payment`, data);
 
 // ========== ADMIN: PAYMENTS / TRANSACTIONS ==========
 export const getTransactions = () => API.get('/admin/transactions');
 export const updateTransactionStatus = (id, status) => API.put(`/admin/transactions/${id}`, { status });
+export const getAdminPaymentSettings = () => API.get('/admin/payment-settings');
+export const updateAdminPaymentSettings = (data) => API.put('/admin/payment-settings', data);
 
 // ========== ADMIN: USER MANAGEMENT ==========
 export const getUsers = () => API.get('/admin/users');
@@ -98,13 +111,27 @@ export const getBillboardAvailability = (id, date) => API.get(`/advertiser/billb
 // Booking creation & management
 export const createBooking = (data) => API.post('/advertiser/bookings', data);
 export const getMyBookings = () => API.get('/advertiser/my-bookings');
+export const cancelBooking = (id) => API.put(`/advertiser/bookings/${id}/cancel`);
 export const getMyAds = () => API.get('/advertiser/my-ads');
 export const getPayments = () => API.get('/advertiser/payments');
 export const getInvoices = () => API.get('/advertiser/invoices');
 export const getReports = () => API.get('/advertiser/reports');
 
-// Manual payment submission
-export const submitManualPayment = (data) => API.post('/advertiser/submit-payment', data);
+// Checkout / Verified Sandbox Payments
+export const getCheckoutConfig = (billboardId) => API.get(`/payments/checkout-config/${billboardId}`);
+export const prepareBookingCheckout = (data) =>
+  API.post('/payments/prepare-booking', data, data instanceof FormData ? { headers: { 'Content-Type': 'multipart/form-data' } } : undefined);
+export const requestBookingPaymentCode = (data) => API.post('/payments/payfast/initiate', data);
+export const verifyBookingPaymentCode = (data) => API.post('/payments/payfast/confirm', data);
+export const resendBookingPaymentCode = (data) => API.post('/payments/payfast/sync-status', data);
+export const submitManualBookingPayment = requestBookingPaymentCode;
+export const initiatePayFastPayment = requestBookingPaymentCode;
+export const confirmPayFastPayment = verifyBookingPaymentCode;
+export const syncPayFastPaymentStatus = resendBookingPaymentCode;
+
+// Display / hardware
+export const sendAdToDisplay = (data) => API.post('/display/send-ad', data);
+export const getCurrentDisplay = () => API.get('/display/current');
 
 // Advertiser notifications
 export const getAdvertiserNotifications = () => API.get('/advertiser/notifications');

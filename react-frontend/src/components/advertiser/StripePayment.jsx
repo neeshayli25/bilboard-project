@@ -14,7 +14,7 @@ export default function StripePayment({ amount, onSuccess, bookingId }) {
     // First, create payment intent from backend
     const res = await fetch('/api/advertiser/create-payment-intent', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionStorage.getItem('token')}` },
       body: JSON.stringify({ amount, currency: 'pkr' }),
     });
     const { clientSecret } = await res.json();
@@ -30,7 +30,7 @@ export default function StripePayment({ amount, onSuccess, bookingId }) {
       // Confirm booking with backend
       const confirmRes = await fetch('/api/advertiser/confirm-payment', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionStorage.getItem('token')}` },
         body: JSON.stringify({ bookingId, paymentIntentId: paymentIntent.id, paymentMethod: 'stripe' }),
       });
       if (confirmRes.ok) {

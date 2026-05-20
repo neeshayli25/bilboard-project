@@ -43,7 +43,7 @@ export default function Payments() {
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Payment History</h1>
-          <p className="text-gray-500 mt-1">Track all your transactions</p>
+          <p className="text-gray-500 mt-1">Track verification steps, successful payments, and refunds</p>
         </div>
         <button onClick={fetchPayments} className="p-2 text-gray-500 hover:text-indigo-600 transition">
           <RefreshCw size={18} />
@@ -68,7 +68,7 @@ export default function Payments() {
           <div className="flex items-center gap-2 text-yellow-600 mb-2">
             <Clock size={16} /> Pending
           </div>
-          <p className="text-2xl font-bold text-gray-800">{transactions.filter(t => t.status === "pending").length}</p>
+          <p className="text-2xl font-bold text-gray-800">{transactions.filter(t => ["pending", "requires_action"].includes(t.status)).length}</p>
         </div>
       </div>
 
@@ -83,6 +83,7 @@ export default function Payments() {
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Invoice #</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Billboard</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Method</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
@@ -93,14 +94,17 @@ export default function Payments() {
               {transactions.map(t => (
                 <tr key={t._id} className="hover:bg-gray-50 transition">
                   <td className="px-6 py-4 font-medium text-gray-800">{t.invoiceNumber || t._id.slice(-6)}</td>
+                  <td className="px-6 py-4 text-gray-600">{t.booking?.billboard?.name || "Billboard booking"}</td>
                   <td className="px-6 py-4 font-semibold text-gray-800">{formatCurrency(t.amount)}</td>
-                  <td className="px-6 py-4 capitalize text-gray-600">{t.method || "N/A"}</td>
+                  <td className="px-6 py-4 capitalize text-gray-600">{t.method || t.gateway || "N/A"}</td>
                   <td className="px-6 py-4">
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                       t.status === "completed" ? "bg-green-100 text-green-700" :
-                      t.status === "pending" ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"
+                      t.status === "pending" || t.status === "requires_action" ? "bg-yellow-100 text-yellow-700" :
+                      t.status === "refunded" ? "bg-blue-100 text-blue-700" :
+                      "bg-red-100 text-red-700"
                     }`}>
-                      {t.status}
+                      {t.status === "requires_action" ? "awaiting_code" : t.status}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-gray-600">{new Date(t.createdAt).toLocaleDateString()}</td>

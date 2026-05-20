@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import NavBar from "../ui/NavBar";
+import { requestPasswordReset, resetPassword } from "../../api";
 
 function ForgotPassword() {
   const [email, setEmail] = useState("");
@@ -9,89 +10,73 @@ function ForgotPassword() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [previewUrl, setPreviewUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token");
+  const linkedEmail = searchParams.get("email") || "";
+  const [resetLinkExpired, setResetLinkExpired] = useState(false);
 
-  const isReset = !!token;
+  const isReset = Boolean(token);
 
-  // Base API URL (reads from .env or defaults to localhost)
-  const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
-
-  // Forgot Password handler
   const handleSendLink = async (e) => {
     e.preventDefault();
     setError("");
     setSuccess("");
+    setPreviewUrl("");
 
     if (!email) {
-      setError("Please enter your email address");
-      return;
-    }
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      setError("Please enter a valid email");
+      setError("Please enter your email address.");
       return;
     }
 
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/auth/forgot-password`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setSuccess(data.message || "Reset link sent! Please check your email.");
-        setEmail("");
-      } else {
-        setError(data.message || "Something went wrong");
-      }
+      const res = await requestPasswordReset({ email });
+      setSuccess(res.data?.message || "Reset link sent to your Gmail account.");
+      setPreviewUrl(res.data?.previewUrl || "");
+      setResetLinkExpired(false);
+      setEmail("");
     } catch (err) {
-      setError("Server error occurred. Please try again later.");
+      setError(err.response?.data?.message || "Could not send the reset link.");
     } finally {
       setLoading(false);
     }
   };
 
-  // Reset Password handler
   const handleResetPassword = async (e) => {
     e.preventDefault();
     setError("");
     setSuccess("");
 
     if (!password || !confirmPassword) {
-      setError("Please fill both fields");
+      setError("Please fill both password fields.");
       return;
     }
+
     if (password.length < 6) {
-      setError("Password must be at least 6 characters");
+      setError("Password must be at least 6 characters long.");
       return;
     }
+
     if (password !== confirmPassword) {
-      setError("Passwords do not match");
+      setError("Passwords do not match.");
       return;
     }
 
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/auth/reset-password/${token}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setSuccess(data.message || "Password reset successful! Redirecting to login...");
-        setTimeout(() => navigate("/login"), 3000);
-      } else {
-        setError(data.message || "Invalid or expired reset token");
-      }
+      const res = await resetPassword(token, { password });
+      setSuccess(res.data?.message || "Password reset successful. Redirecting to login...");
+      setResetLinkExpired(false);
+      setTimeout(() => navigate("/login"), 2500);
     } catch (err) {
-      setError("Server error occurred. Please try again later.");
+      setError(err.response?.data?.message || "Invalid or expired reset link.");
+      setResetLinkExpired(true);
+      if (linkedEmail) {
+        setEmail(linkedEmail);
+      }
     } finally {
       setLoading(false);
     }
@@ -112,23 +97,47 @@ function ForgotPassword() {
           className="bg-gray-900/40 backdrop-blur-md border border-gray-600 rounded-3xl p-10 w-full max-w-md shadow-xl"
         >
           <h2 className="text-3xl font-extrabold text-white text-center mb-4">
-            {isReset ? "Reset Password" : "Forgot Password"}
+            {isReset ? "Create New Password" : "Forgot Password"}
           </h2>
           <p className="text-center text-white mb-6">
-            {isReset
-              ? "Enter your new password below"
-              : "Enter your email to receive a reset link"}
+            {isReset ? "Enter your new password below" : "Enter your Gmail address to receive a reset link"}
           </p>
-          {error && (
-            <div className="bg-red-500/20 text-red-400 p-2 rounded mb-4 text-center font-semibold">
-              {error}
+
+          {error && <div className="bg-red-500/20 text-red-400 p-2 rounded mb-4 text-center font-semibold">{error}</div>}
+          {success && <div className="bg-green-500/20 text-green-400 p-2 rounded mb-4 text-center font-semibold">{success}</div>}
+          {previewUrl && (
+            <div className="bg-sky-500/10 text-sky-200 p-3 rounded mb-4 text-sm">
+              <p className="font-semibold mb-2">Local reset preview link</p>
+              <a href={previewUrl} className="underline break-all" target="_blank" rel="noreferrer">
+                {previewUrl}
+              </a>
             </div>
           )}
-          {success && (
-            <div className="bg-green-500/20 text-green-400 p-2 rounded mb-4 text-center font-semibold">
-              {success}
+
+          {isReset && resetLinkExpired && (
+            <div className="bg-sky-500/10 text-sky-200 p-4 rounded mb-4 text-sm">
+              <p className="font-semibold mb-2">Need a fresh reset link?</p>
+              <p className="mb-3">Request a new password reset email below and use only the latest email message.</p>
+              <input
+                type="email"
+                placeholder="Email Address"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-5 py-3 rounded-xl bg-gray-800 text-gray-200 placeholder-gray-500 outline-none focus:ring-2 focus:ring-silver-300 transition duration-300"
+              />
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                type="button"
+                disabled={loading}
+                onClick={handleSendLink}
+                className="mt-3 w-full bg-sky-500 text-white py-3 rounded-xl font-bold hover:bg-sky-400 disabled:opacity-50"
+              >
+                {loading ? "Sending..." : "Send New Reset Link"}
+              </motion.button>
             </div>
           )}
+
           <form onSubmit={isReset ? handleResetPassword : handleSendLink} className="flex flex-col gap-4">
             {!isReset && (
               <input
@@ -139,6 +148,7 @@ function ForgotPassword() {
                 className="px-5 py-3 rounded-xl bg-gray-800 text-gray-200 placeholder-gray-500 outline-none focus:ring-2 focus:ring-silver-300 transition duration-300"
               />
             )}
+
             {isReset && (
               <>
                 <input
@@ -157,6 +167,7 @@ function ForgotPassword() {
                 />
               </>
             )}
+
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
@@ -164,13 +175,10 @@ function ForgotPassword() {
               disabled={loading}
               className="mt-2 bg-gradient-to-r from-gray-600 via-white to-gray-500 text-black py-3 rounded-xl font-bold shadow-lg hover:from-gray-700 hover:to-gray-500 transition-all duration-300 disabled:opacity-50"
             >
-              {loading
-                ? "Processing..."
-                : isReset
-                ? "Reset Password"
-                : "Send Reset Link"}
+              {loading ? "Processing..." : isReset ? "Reset Password" : "Send Reset Link"}
             </motion.button>
           </form>
+
           <div className="mt-6 text-center text-white">
             <Link to="/login" className="hover:underline text-silver-300 font-semibold">
               Back to Login

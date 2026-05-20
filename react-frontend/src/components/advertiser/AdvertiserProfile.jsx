@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { User, Mail, Phone, Building, Lock, Save, AlertCircle, CheckCircle } from "lucide-react";
+import { User, Mail, Phone, Building, Lock, Save, AlertCircle, CheckCircle, Shield, Key } from "lucide-react";
 import { getProfile, updateProfile, changePassword } from "../../api";
 
 export default function AdvertiserProfile() {
@@ -64,150 +64,164 @@ export default function AdvertiserProfile() {
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center h-64">
+      <div className="flex items-center justify-center h-full min-h-[60vh]">
         <div className="text-center">
-          <div className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-gray-500">Loading profile...</p>
+          <div className="w-14 h-14 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-indigo-400 font-bold">Loading profile…</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-3xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">Profile Settings</h1>
-        <p className="text-gray-500 mt-1">Manage your account information</p>
+    <div className="max-w-4xl mx-auto flex flex-col gap-8 pb-16">
+      <div className="mb-2">
+        <h1 className="text-3xl font-black text-white mb-2">My Profile</h1>
+        <p className="text-indigo-200/60 text-sm">Manage your account information and secure your access.</p>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-8">
-        {/* Messages */}
-        <AnimatePresence>
-          {message.text && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              className={`flex items-center gap-2 p-3 rounded-lg ${
-                message.type === "success" ? "bg-green-50 text-green-700 border border-green-200" : "bg-red-50 text-red-700 border border-red-200"
-              }`}
-            >
-              {message.type === "success" ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
-              {message.text}
-            </motion.div>
-          )}
-        </AnimatePresence>
+      {/* Messages */}
+      <AnimatePresence>
+        {message.text && (
+          <motion.div
+            initial={{ opacity: 0, y: -10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className={`flex items-center gap-3 p-4 rounded-2xl border backdrop-blur-md ${
+              message.type === "success" 
+                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-[0_0_20px_rgba(16,185,129,0.1)]" 
+                : "bg-red-500/10 text-red-400 border-red-500/20 shadow-[0_0_20px_rgba(239,68,68,0.1)]"
+            }`}
+          >
+            {message.type === "success" ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
+            <span className="font-bold text-sm tracking-wide">{message.text}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-        {/* Profile Form */}
-        <div>
-          <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-            <User size={18} className="text-indigo-600" /> Personal Information
-          </h2>
-          <form onSubmit={handleProfileUpdate} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
-              <div className="relative">
-                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <input
-                  type="text"
-                  value={profile.name}
-                  onChange={(e) => setProfile({ ...profile, name: e.target.value })}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  required
-                />
-              </div>
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+        {/* Profile Info Form */}
+        <div className="lg:col-span-3 bg-[#131A2A]/80 backdrop-blur-md rounded-3xl p-8 border border-white/5 shadow-[0_0_30px_rgba(0,0,0,0.3)] relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600/10 blur-[80px] rounded-full pointer-events-none" />
+          
+          <div className="flex items-center gap-3 mb-8">
+            <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20">
+              <User size={24} className="text-indigo-400" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <input
-                  type="email"
-                  value={profile.email}
-                  onChange={(e) => setProfile({ ...profile, email: e.target.value })}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  required
-                />
-              </div>
+              <h2 className="text-xl font-black text-white">Personal Info</h2>
+              <p className="text-xs text-indigo-200/50">Update your contact and public details</p>
             </div>
+          </div>
+
+          <form onSubmit={handleProfileUpdate} className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
-              <div className="relative">
-                <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <input
-                  type="tel"
-                  value={profile.phone}
-                  onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                />
+              <label className="block text-xs font-black text-white/50 uppercase tracking-widest mb-2">Full Name</label>
+              <div className="relative group">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <User size={16} className="text-white/30 group-focus-within:text-indigo-400 transition-colors" />
+                </div>
+                <input type="text" value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })}
+                  className="w-full bg-[#0A0F1C]/80 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white text-sm focus:outline-none focus:border-indigo-500/50 focus:bg-white/5 transition-all outline-none" required />
               </div>
             </div>
+            
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Organization</label>
-              <div className="relative">
-                <Building className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <input
-                  type="text"
-                  value={profile.organization}
-                  onChange={(e) => setProfile({ ...profile, organization: e.target.value })}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                />
+              <label className="block text-xs font-black text-white/50 uppercase tracking-widest mb-2">Email Address</label>
+              <div className="relative group">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <Mail size={16} className="text-white/30 group-focus-within:text-indigo-400 transition-colors" />
+                </div>
+                <input type="email" value={profile.email} onChange={(e) => setProfile({ ...profile, email: e.target.value })}
+                  className="w-full bg-[#0A0F1C]/80 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white text-sm focus:outline-none focus:border-indigo-500/50 focus:bg-white/5 transition-all outline-none" required />
               </div>
             </div>
-            <div className="md:col-span-2">
-              <button
-                type="submit"
-                className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg transition"
-              >
-                <Save size={16} /> Update Profile
-              </button>
+            
+            <div>
+              <label className="block text-xs font-black text-white/50 uppercase tracking-widest mb-2">Phone Number</label>
+              <div className="relative group">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <Phone size={16} className="text-white/30 group-focus-within:text-indigo-400 transition-colors" />
+                </div>
+                <input type="tel" value={profile.phone} onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
+                  className="w-full bg-[#0A0F1C]/80 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white text-sm focus:outline-none focus:border-indigo-500/50 focus:bg-white/5 transition-all outline-none" />
+              </div>
+            </div>
+            
+            <div>
+              <label className="block text-xs font-black text-white/50 uppercase tracking-widest mb-2">Organization</label>
+              <div className="relative group">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <Building size={16} className="text-white/30 group-focus-within:text-indigo-400 transition-colors" />
+                </div>
+                <input type="text" value={profile.organization} onChange={(e) => setProfile({ ...profile, organization: e.target.value })}
+                  className="w-full bg-[#0A0F1C]/80 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white text-sm focus:outline-none focus:border-indigo-500/50 focus:bg-white/5 transition-all outline-none" />
+              </div>
+            </div>
+
+            <div className="md:col-span-2 mt-4">
+              <motion.button whileTap={{ scale: 0.97 }} type="submit"
+                className="flex items-center gap-2 px-6 py-3.5 rounded-xl font-bold text-sm bg-indigo-600 hover:bg-indigo-500 text-white transition-all shadow-[0_0_30px_rgba(99,102,241,0.2)] hover:shadow-[0_0_30px_rgba(99,102,241,0.4)]">
+                <Save size={16} /> Save Changes
+              </motion.button>
             </div>
           </form>
         </div>
 
-        {/* Change Password */}
-        <div className="border-t border-gray-200 pt-6">
-          <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-            <Lock size={18} className="text-indigo-600" /> Change Password
-          </h2>
-          <form onSubmit={handlePasswordChange} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Current Password</label>
-              <input
-                type="password"
-                value={passwords.current}
-                onChange={(e) => setPasswords({ ...passwords, current: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                required
-              />
+        {/* Change Password Form */}
+        <div className="lg:col-span-2 bg-[#131A2A]/80 backdrop-blur-md rounded-3xl p-8 border border-white/5 shadow-[0_0_30px_rgba(0,0,0,0.3)] relative overflow-hidden">
+          <div className="absolute bottom-0 right-0 w-48 h-48 bg-purple-600/10 blur-[60px] rounded-full pointer-events-none" />
+
+          <div className="flex items-center gap-3 mb-8">
+            <div className="w-12 h-12 rounded-2xl bg-purple-500/10 flex items-center justify-center border border-purple-500/20">
+              <Shield size={24} className="text-purple-400" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
-              <input
-                type="password"
-                value={passwords.new}
-                onChange={(e) => setPasswords({ ...passwords, new: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                required
-                minLength={6}
-              />
+              <h2 className="text-xl font-black text-white">Security</h2>
+              <p className="text-xs text-indigo-200/50">Update your password</p>
             </div>
+          </div>
+
+          <form onSubmit={handlePasswordChange} className="space-y-6 relative z-10">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Confirm New Password</label>
-              <input
-                type="password"
-                value={passwords.confirm}
-                onChange={(e) => setPasswords({ ...passwords, confirm: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                required
-              />
+              <label className="block text-xs font-black text-white/50 uppercase tracking-widest mb-2">Current Password</label>
+              <div className="relative group">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <Lock size={16} className="text-white/30 group-focus-within:text-purple-400 transition-colors" />
+                </div>
+                <input type="password" value={passwords.current} onChange={(e) => setPasswords({ ...passwords, current: e.target.value })}
+                  className="w-full bg-[#0A0F1C]/80 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white text-sm focus:outline-none focus:border-purple-500/50 focus:bg-white/5 transition-all outline-none" required />
+              </div>
             </div>
-            <button
-              type="submit"
-              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg transition"
-            >
-              <Lock size={16} /> Change Password
-            </button>
+            
+            <div>
+              <label className="block text-xs font-black text-white/50 uppercase tracking-widest mb-2">New Password</label>
+              <div className="relative group">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <Key size={16} className="text-white/30 group-focus-within:text-purple-400 transition-colors" />
+                </div>
+                <input type="password" value={passwords.new} onChange={(e) => setPasswords({ ...passwords, new: e.target.value })}
+                  className="w-full bg-[#0A0F1C]/80 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white text-sm focus:outline-none focus:border-purple-500/50 focus:bg-white/5 transition-all outline-none" required minLength={6} />
+              </div>
+            </div>
+            
+            <div>
+              <label className="block text-xs font-black text-white/50 uppercase tracking-widest mb-2">Confirm Password</label>
+              <div className="relative group">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <Key size={16} className="text-white/30 group-focus-within:text-purple-400 transition-colors" />
+                </div>
+                <input type="password" value={passwords.confirm} onChange={(e) => setPasswords({ ...passwords, confirm: e.target.value })}
+                  className="w-full bg-[#0A0F1C]/80 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white text-sm focus:outline-none focus:border-purple-500/50 focus:bg-white/5 transition-all outline-none" required />
+              </div>
+            </div>
+
+            <div className="pt-2">
+              <motion.button whileTap={{ scale: 0.97 }} type="submit"
+                className="w-full flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl font-bold text-sm bg-white/5 hover:bg-white/10 border border-white/10 text-white transition-all">
+                <Lock size={16} /> Update Password
+              </motion.button>
+            </div>
           </form>
         </div>
       </div>

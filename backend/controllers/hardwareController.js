@@ -176,8 +176,20 @@ const getManualOverride = async (billboard) => {
 };
 
 const loadBillboardWithConfig = async (billboardId) => {
-  const billboard = await Billboard.findById(billboardId);
+  let billboard = null;
+
+  // Try MongoDB ObjectId first
+  if (billboardId.match(/^[0-9a-fA-F]{24}$/)) {
+    billboard = await Billboard.findById(billboardId);
+  }
+
+  // If not ObjectId, treat it as NAME (like "B")
+  if (!billboard) {
+    billboard = await Billboard.findOne({ name: billboardId });
+  }
+
   if (!billboard) return null;
+
   await ensureBillboardDisplayConfig(billboard);
   return billboard;
 };

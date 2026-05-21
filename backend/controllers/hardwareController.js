@@ -33,7 +33,9 @@ const buildBillboardSummary = (billboard) => ({
 const buildAdSummary = (ad = {}) => ({
   id: ad?._id || '',
   title: ad?.title || 'Scheduled Ad',
-  mediaUrl: ad?.mediaUrl || '',
+ mediaUrl: ad?.mediaUrl
+  ? `https://cdbms-backend-w86i.onrender.com${ad.mediaUrl}`
+  : '',
   mediaType: ad?.mediaType || 'image',
   duration: Number(ad?.duration) || 30,
   description: ad?.description || '',

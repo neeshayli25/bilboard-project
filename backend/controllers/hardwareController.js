@@ -625,29 +625,32 @@ export const registerDisplayDevice = async (req, res) => {
 
 export const rotateBillboardDeviceToken = async (req, res) => {
   try {
-    const billboard = await loadBillboardWithConfig(req.params.id);
+    const billboard = await Billboard.findById(req.params.id);
+
     if (!billboard) {
-      return res.status(404).json({ message: 'Billboard not found' });
+      return res.status(404).json({
+        message: 'Billboard not found'
+      });
     }
 
-    if (!assertBillboardAccess(billboard, req.user._id, res)) return;
+    const newToken = crypto.randomBytes(18).toString('hex');
 
     billboard.displayConfig = {
-      ...(billboard.displayConfig?.toObject ? billboard.displayConfig.toObject() : billboard.displayConfig || {}),
-      deviceToken: crypto.randomBytes(24).toString('hex'),
-      lastHeartbeatAt: null,
-      browserConnected: false,
-      arduinoConnected: false,
-      serialMode: 'raspberry_pi_native_player',
-      lastPlaybackState: 'offline',
+      ...(billboard.displayConfig || {}),
+      deviceToken: newToken
     };
+
     await billboard.save();
 
     return res.json({
-      message: 'Display device token rotated successfully.',
-      displayConfig: sanitizeDisplayConfigForAdmin(billboard.displayConfig),
+      success: true,
+      token: newToken,
+      billboardId: billboard._id
     });
+
   } catch (error) {
-    return res.status(500).json({ message: 'Failed to rotate billboard device token', error: error.message });
+    return res.status(500).json({
+      message: error.message
+    });
   }
 };

@@ -427,7 +427,13 @@ export const sendAdToDisplay = async (req, res) => {
     await billboard.save();
 
     const now = new Date();
-    const envelope = buildDisplayEnvelope({ billboard, type: content.mediaUrl ? 'active' : 'idle', content, schedule: [], now });
+    const envelope = buildDisplayEnvelope({
+  billboard,
+  type: 'active',
+  content,
+  schedule: [],
+  now,
+});
 
     return res.status(200).json({
       message: 'Sent to display',

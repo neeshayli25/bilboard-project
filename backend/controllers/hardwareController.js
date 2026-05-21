@@ -11,7 +11,9 @@ import {
 import { extractTimeRangeFromSlot, parseTimePartToMinutes } from '../utils/bookingUtils.js';
 
 const manualDisplayOverrides = new Map();
-const MANUAL_OVERRIDE_MS = 20 * 60 * 1000;
+
+// FIX 1: Reduced from 20 minutes to 1 minute so "Display Now" stops after 1 min
+const MANUAL_OVERRIDE_MS = 1 * 60 * 1000;
 
 const getIsoNow = () => new Date().toISOString();
 
@@ -33,9 +35,9 @@ const buildBillboardSummary = (billboard) => ({
 const buildAdSummary = (ad = {}) => ({
   id: ad?._id || '',
   title: ad?.title || 'Scheduled Ad',
- mediaUrl: ad?.mediaUrl
-  ? `https://cdbms-backend-w86i.onrender.com${ad.mediaUrl}`
-  : '',
+  mediaUrl: ad?.mediaUrl
+    ? `https://cdbms-backend-w86i.onrender.com${ad.mediaUrl}`
+    : '',
   mediaType: ad?.mediaType || 'image',
   duration: Number(ad?.duration) || 30,
   description: ad?.description || '',
@@ -122,7 +124,10 @@ const toDisplayContent = (booking, now = new Date(), source = 'schedule') => {
     mediaType: ad.mediaType,
     duration: ad.duration,
     description: ad.description,
-    status: isActiveNow && booking.status !== 'rejected' ? 'active' : 'scheduled',
+    // FIX 4: Status is derived from real-time slot check, not stale booking.status
+    status: isCurrentTimeInsideSlot(booking.timeSlot, new Date())
+      ? 'active'
+      : 'idle',
     source,
     timeSlot: booking.timeSlot,
     date: booking.date,
@@ -282,15 +287,8 @@ const resolveDisplayState = async (billboard, now = new Date()) => {
     };
   }
 
-  const nextBooking = schedule[0] || null;
-  if (nextBooking) {
-    return {
-      type: 'scheduled',
-      content: toDisplayContent(nextBooking, now, 'schedule_preview'),
-      schedule,
-    };
-  }
-
+  // FIX 2 & 3: Removed schedule_preview block entirely.
+  // Pi now goes idle when no booking is currently active — no premature ad previews.
   return {
     type: 'idle',
     content: buildIdleContent(billboard),
@@ -414,7 +412,8 @@ export const sendAdToDisplay = async (req, res) => {
       imageUrl: imageUrl || mediaUrl || '',
       mediaType,
       duration: Number(duration) || 30,
-      status: mediaUrl || imageUrl ? 'active' : 'idle',
+      // FIX 5: Always force 'active' when Display Now is triggered — no conditional
+      status: 'active',
       source: 'manual_push',
       ad: buildAdSummary({
         title,

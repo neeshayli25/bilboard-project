@@ -1,4 +1,5 @@
 import Product from '../models/Product.js';
+import { isValidObjectId } from '../utils/billboardHelper.js';
 
 // @desc    Get all products (with pagination)
 // @route   GET /api/products
@@ -23,6 +24,9 @@ const getProducts = async (req, res) => {
 // @route   GET /api/products/:id
 // @access  Public
 const getProductById = async (req, res) => {
+  if (!isValidObjectId(req.params.id)) {
+    return res.status(400).json({ message: 'Invalid Product ID' });
+  }
   const product = await Product.findById(req.params.id);
   if (product) {
     res.json(product);
@@ -50,6 +54,9 @@ const createProduct = async (req, res) => {
 // @route   PUT /api/products/:id
 // @access  Private/Admin
 const updateProduct = async (req, res) => {
+  if (!isValidObjectId(req.params.id)) {
+    return res.status(400).json({ message: 'Invalid Product ID' });
+  }
   const product = await Product.findById(req.params.id);
   if (product) {
     product.name = req.body.name || product.name;
@@ -68,6 +75,9 @@ const updateProduct = async (req, res) => {
 // @route   DELETE /api/products/:id
 // @access  Private/Admin
 const deleteProduct = async (req, res) => {
+  if (!isValidObjectId(req.params.id)) {
+    return res.status(400).json({ message: 'Invalid Product ID' });
+  }
   const product = await Product.findById(req.params.id);
   if (product) {
     await product.deleteOne();

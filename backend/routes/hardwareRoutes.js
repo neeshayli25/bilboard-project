@@ -4,6 +4,7 @@ import {
   getBillboardHardwareStatus,
   getDisplayContent,
   getDisplayRegistry,
+  registerDisplayDevice,
   reportDisplayHeartbeat,
   rotateBillboardDeviceToken,
   sendAdToDisplay,
@@ -22,10 +23,12 @@ router.get('/registry', protect, admin, getDisplayRegistry);
 
 router.post('/send-ad', protect, admin, sendAdToDisplay);
 
+router.get('/heartbeat/:id', reportDisplayHeartbeat);
 router.post('/heartbeat/:id', reportDisplayHeartbeat);
 
 router.get('/status/:id', protect, admin, getBillboardHardwareStatus);
 
+router.post('/register/:id', protect, admin, registerDisplayDevice);
 router.post('/status/:id/rotate-token', protect, admin, rotateBillboardDeviceToken);
 
 export default router;

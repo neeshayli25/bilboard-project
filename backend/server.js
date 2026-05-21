@@ -26,20 +26,22 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.get('/uploads/:folder/:filename', streamStoredMedia);
 app.head('/uploads/:folder/:filename', streamStoredMedia);
 
-app.get("/api/billboard/:id", (req, res) => {
-  const id  = req.params.id;
+app.get('/', (_req, res) => {
   res.json({
-    ads:[
-      {
-        name: "Ad 1",
-        mediaUrl: "https://example.com/ad1.mp4",
-        duration: 30
-      }
-    ]
-  })
-    
+    status: 'ok',
+    service: 'CDBMS backend',
+    health: '/api/health',
+    hardwareDisplay: '/api/hardware/display/:id',
+  });
 });
 
+app.get('/api/health', (_req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'CDBMS backend',
+    timestamp: new Date().toISOString(),
+  });
+});
 
 const PORT = process.env.PORT || 5000;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -126,6 +128,7 @@ const startServer = async () => {
     const hardwareRoutes = (await import('./routes/hardwareRoutes.js')).default;
     const paymentRoutes = (await import('./routes/paymentRoutes.js')).default;
     const displayRoutes = (await import('./routes/displayRoutes.js')).default;
+    const billboardRoutes = (await import('./routes/billboardRoutes.js')).default;
     const { expireStaleManualPaymentBookings } = await import('./utils/manualPaymentUtils.js');
 
     // Register routes
@@ -138,6 +141,10 @@ const startServer = async () => {
     app.use('/api/hardware', hardwareRoutes);
     app.use('/api/payments', paymentRoutes);
     app.use('/api/display', displayRoutes);
+    app.use('/api/billboard', billboardRoutes);
+    app.use((req, res) => {
+      res.status(404).json({ message: `Cannot ${req.method} ${req.originalUrl}` });
+    });
     app.use(errorHandler);
 
     await expireStaleManualPaymentBookings();

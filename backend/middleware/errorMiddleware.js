@@ -1,6 +1,5 @@
 const errorHandler = (err, req, res, next) => {
-  // Get status code from response if already set, otherwise 500 (server error)
-  let statusCode = res.statusCode === 200 ? 500 : res.statusCode;
+  let statusCode = err.statusCode || (res.statusCode === 200 ? 500 : res.statusCode);
   let message = err.message;
 
   // Mongoose duplicate key error (code 11000) – usually for unique fields like email
@@ -15,6 +14,11 @@ const errorHandler = (err, req, res, next) => {
     message = Object.values(err.errors)
       .map((val) => val.message)
       .join(', ');
+  }
+
+  if (err.name === 'CastError') {
+    statusCode = 400;
+    message = `Invalid ${err.path || 'identifier'}: ${err.value}`;
   }
 
   res.status(statusCode).json({

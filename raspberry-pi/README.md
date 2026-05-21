@@ -1,131 +1,139 @@
 # CDBMS Raspberry Pi Billboard Player
 
-This folder is for the real hardware display. The Raspberry Pi becomes a billboard device connected to the monitor by HDMI.
+This folder turns a Raspberry Pi 3 plus HDMI LCD into a real CDBMS display device. The Pi polls the Render backend, downloads/caches ad media, plays active ads full screen, reports heartbeats, and starts again automatically after reboot.
 
-For local demos, your laptop can run the CDBMS backend/frontend. For the final deployed version, Vercel runs the frontend and Render runs the backend. The Raspberry Pi runs this player automatically and keeps the monitor black until an ad is active.
+## Hardware
 
-For remote billboard/city/location deployment, read `REMOTE_DEPLOYMENT_GUIDE.md`.
+1. Flash Raspberry Pi OS with Desktop to the microSD card.
+2. Connect the HDMI LCD to the Raspberry Pi HDMI port.
+3. Power the HDMI LCD.
+4. Power the Raspberry Pi with a stable 5V adapter.
+5. Connect the Pi to Wi-Fi or Ethernet.
 
-## What This Does
+## Backend Values Needed
 
-- Boots the Raspberry Pi.
-- Opens a full-screen black player automatically.
-- Polls your CDBMS backend every few seconds.
-- Shows the scheduled ad only when the backend says it is active.
-- Shows an ad immediately when admin clicks Display Now.
-- Goes back to black idle screen when no ad is active.
-- Sends heartbeat/status back to CDBMS so the admin panel can show the Pi screen as connected.
+From the CDBMS admin panel, open the billboard/device card and copy:
 
-No Arduino is required.
+- `apiBase`: Render backend API URL, for example `https://your-cdbms-backend.onrender.com/api`
+- `billboardId`: the billboard MongoDB id or the unique billboard name, for example `B`
+- `deviceToken`: the screen token from the billboard display config
 
-## Hardware Connection
+The Pi sends the token as `x-device-token`. If the token is rotated in admin, update `config.json` on the Pi.
 
-1. Put Raspberry Pi OS on the microSD card.
-2. Insert the microSD card into the Raspberry Pi.
-3. Connect Raspberry Pi HDMI to the monitor HDMI.
-4. Power the monitor on.
-5. Power the Raspberry Pi with a proper micro-USB adapter.
-6. Connect the Raspberry Pi to Wi-Fi/internet.
+## Install On Raspberry Pi
 
-The monitor is treated as the billboard. The laptop is only the control/admin computer.
-
-## One-Time Raspberry Pi Setup
-
-Open Terminal on the Raspberry Pi and install the required packages:
+Copy this `raspberry-pi` folder to the Pi, then run:
 
 ```bash
-sudo apt update
-sudo apt install -y python3 python3-pip python3-requests python3-pygame python3-pil vlc unclutter
+cd raspberry-pi
+chmod +x install_on_pi.sh
+./install_on_pi.sh
 ```
 
-Copy this `raspberry-pi` folder to the Raspberry Pi, for example:
+The installer:
+
+- Installs Python, Requests, Pygame, Pillow, VLC, and unclutter.
+- Creates `~/cdbms-billboard`.
+- Installs `billboard_player.py`.
+- Creates `~/cdbms-billboard/config.json` if missing.
+- Installs and enables `cdbms-billboard.service`.
+- Adds HDMI hotplug settings to `/boot/firmware/config.txt` or `/boot/config.txt`.
+- Adds a desktop autostart fallback.
+
+## Configure The Player
+
+Edit:
 
 ```bash
-mkdir -p ~/cdbms-billboard
+nano ~/cdbms-billboard/config.json
 ```
 
-Then place these files inside `~/cdbms-billboard`.
+Example:
 
-## Configuration
-
-Create a config file:
-
-```bash
-cp config.example.json config.json
+```json
+{
+  "apiBase": "https://your-cdbms-backend.onrender.com/api",
+  "billboardId": "B",
+  "deviceToken": "PASTE_SCREEN_TOKEN_HERE",
+  "deviceLabel": "Raspberry Pi Billboard Screen",
+  "pollSeconds": 3,
+  "heartbeatSeconds": 10,
+  "requestTimeoutSeconds": 45,
+  "debug": false
+}
 ```
-
-Edit `config.json`:
-
-```bash
-nano config.json
-```
-
-Set:
-
-- `apiBase`: your deployed Render backend API URL, for example `https://your-cdbms-backend.onrender.com/api`
-- `billboardId`: the billboard ID from your admin panel
-- `deviceToken`: the screen token from your admin panel
-
-For local testing only, your laptop IP can be found on Windows using:
-
-```powershell
-ipconfig
-```
-
-Use the IPv4 address of the Wi-Fi adapter. For the real remote version, use the Render URL instead.
 
 ## Manual Test
 
-Run this on the Raspberry Pi:
-
 ```bash
-cd ~/cdbms-billboard
-python3 billboard_player.py --config config.json
+python3 ~/cdbms-billboard/billboard_player.py --config ~/cdbms-billboard/config.json
 ```
 
 Expected behavior:
 
-- If no ad is active, the monitor stays black.
-- If you click Display Now in the admin panel, the ad appears full-screen.
-- If the scheduled time arrives, the ad appears automatically.
+- No active ad: black idle display.
+- Active scheduled ad: full-screen image or video.
+- Admin "Display Now": full-screen media immediately.
+- Backend offline: black idle display and automatic retry.
 
-Press `Esc` or `Ctrl+C` to stop during testing.
+Press `Esc` or `Ctrl+C` to stop the manual test.
 
-## Auto Start On Boot
+## Start On Boot
 
-Create the autostart folder:
-
-```bash
-mkdir -p ~/.config/autostart
-```
-
-Create the desktop autostart file:
+The installer enables systemd automatically. To control it:
 
 ```bash
-nano ~/.config/autostart/cdbms-billboard.desktop
+sudo systemctl start cdbms-billboard
+sudo systemctl status cdbms-billboard
+sudo systemctl restart cdbms-billboard
+sudo journalctl -u cdbms-billboard -f
 ```
 
-Paste this:
-
-```ini
-[Desktop Entry]
-Type=Application
-Name=CDBMS Billboard Player
-Exec=/usr/bin/python3 /home/pi/cdbms-billboard/billboard_player.py --config /home/pi/cdbms-billboard/config.json
-Terminal=false
-X-GNOME-Autostart-enabled=true
-```
-
-If your Raspberry Pi username is not `pi`, replace `/home/pi` with your username path.
-
-Reboot:
+Reboot test:
 
 ```bash
 sudo reboot
 ```
 
-After reboot, you should not need to open anything. The Pi should automatically show the black idle billboard player.
+After reboot, the Pi should open the full-screen player without manual action.
 
-## Demo Explanation For Teacher
+## API Contract
 
-The Raspberry Pi is configured as a dedicated display device. It is connected to the monitor through HDMI. The laptop runs the CDBMS admin panel and backend. The Pi polls the backend using the billboard ID and device token. When a booking reaches its scheduled time, or when admin clicks Display Now, the Pi receives the ad media URL, downloads/caches it, and displays it full-screen on the monitor. When the ad is not active anymore, the player returns to a black idle display.
+The Pi calls:
+
+```http
+GET /api/hardware/display/B
+x-device-token: YOUR_SCREEN_TOKEN
+```
+
+Active response:
+
+```json
+{
+  "type": "active",
+  "content": {
+    "title": "Nike Ad",
+    "mediaUrl": "https://...",
+    "mediaType": "video",
+    "duration": 30
+  }
+}
+```
+
+The Pi reports:
+
+```http
+POST /api/hardware/heartbeat/B
+x-device-token: YOUR_SCREEN_TOKEN
+```
+
+## Production Flow
+
+1. Admin creates a unique billboard such as `B`.
+2. Admin copies the generated display token.
+3. Advertiser uploads an ad and books a slot.
+4. Admin approves ad/payment, booking becomes `scheduled`.
+5. At the scheduled time, `/api/hardware/display/B` returns `type: active`.
+6. Raspberry Pi downloads the media and displays it full screen on HDMI.
+7. Pi sends heartbeat so the admin panel shows online/offline status.
+8. If the Pi restarts, systemd launches the player again.

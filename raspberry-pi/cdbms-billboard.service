@@ -1,0 +1,18 @@
+[Unit]
+Description=CDBMS Raspberry Pi HDMI Billboard Player
+After=network-online.target graphical.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=__HOME__/.Xauthority
+WorkingDirectory=__APP_DIR__
+ExecStart=/usr/bin/python3 __APP_DIR__/billboard_player.py --config __APP_DIR__/config.json
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+
+[Install]
+WantedBy=graphical.target

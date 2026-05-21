@@ -24,7 +24,7 @@ const displayConfigSchema = new mongoose.Schema(
 );
 
 const billboardSchema = new mongoose.Schema({
-  name: { type: String, required: true },
+  name: { type: String, required: true, trim: true, unique: true },
   city: { type: String, required: true },
   location: { type: String, required: true },
   size: { type: String, default: '' },

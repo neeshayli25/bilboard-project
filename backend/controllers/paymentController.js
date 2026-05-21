@@ -28,6 +28,7 @@ import {
   parseDateOnly,
   slotContainsRange,
 } from '../utils/bookingUtils.js';
+import { getBillboardByIdOrName, isValidObjectId } from '../utils/billboardHelper.js';
 
 const CHECKOUT_HOLD_MINUTES = 15;
 const PAKISTAN_MOBILE_REGEX = /^03\d{9}$/;
@@ -327,6 +328,7 @@ const createOrReplacePendingCheckout = async ({
 };
 
 const getCheckoutResources = async (userId, bookingId, options = {}) => {
+  if (!isValidObjectId(bookingId)) return null;
   const bookingQuery = Booking.findOne({ _id: bookingId, advertiser: userId }).populate('billboard');
   if (options.withAd) {
     bookingQuery.populate('ad');
@@ -823,7 +825,7 @@ export const getCheckoutConfig = async (req, res) => {
   if (!advertiser) return;
 
   const { billboardId } = req.params;
-  const billboard = await Billboard.findById(billboardId).populate('createdBy');
+  const billboard = await getBillboardByIdOrName(billboardId, { populate: 'createdBy' });
   if (!billboard) {
     return res.status(404).json({ message: 'Billboard not found.' });
   }
@@ -872,7 +874,7 @@ export const prepareBookingCheckout = async (req, res) => {
     return res.status(400).json({ message: customerValidationError });
   }
 
-  const billboard = await Billboard.findById(billboardId).populate('createdBy');
+  const billboard = await getBillboardByIdOrName(billboardId, { populate: 'createdBy' });
   if (!billboard) {
     return res.status(404).json({ message: 'Billboard not found.' });
   }
@@ -903,7 +905,7 @@ export const prepareBookingCheckout = async (req, res) => {
   }
 
   const existingBookings = await Booking.find({
-    billboard: billboardId,
+    billboard: billboard._id,
     date: bookingDate,
   });
   const overlappingBooking = existingBookings.find(
@@ -930,7 +932,7 @@ export const prepareBookingCheckout = async (req, res) => {
     const { booking, transaction, invoice } = await createOrReplacePendingCheckout({
       advertiserId: req.user._id,
       adId: ad._id,
-      billboardId,
+      billboardId: billboard._id,
       bookingDate,
       timeSlot,
       totalPrice: pricing.totalPrice,

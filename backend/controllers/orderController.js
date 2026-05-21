@@ -1,5 +1,6 @@
 import Order from '../models/Order.js';
 import Product from '../models/Product.js';
+import { isValidObjectId } from '../utils/billboardHelper.js';
 
 // @desc    Create new order
 // @route   POST /api/orders
@@ -15,6 +16,9 @@ const addOrderItems = async (req, res) => {
   // Calculate total price
   let totalPrice = 0;
   for (const item of products) {
+    if (!isValidObjectId(item.product)) {
+      return res.status(400).json({ message: `Invalid product ID ${item.product}` });
+    }
     const product = await Product.findById(item.product);
     if (product) {
       totalPrice += product.price * item.quantity;
@@ -48,6 +52,9 @@ const getMyOrders = async (req, res) => {
 // @route   GET /api/orders/:id
 // @access  Private (owner or admin)
 const getOrderById = async (req, res) => {
+  if (!isValidObjectId(req.params.id)) {
+    return res.status(400).json({ message: 'Invalid Order ID' });
+  }
   const order = await Order.findById(req.params.id)
     .populate('user', 'name email')
     .populate('products.product', 'name price');
@@ -71,6 +78,9 @@ const getOrderById = async (req, res) => {
 // @access  Private/Admin
 const updateOrderStatus = async (req, res) => {
   const { status } = req.body;
+  if (!isValidObjectId(req.params.id)) {
+    return res.status(400).json({ message: 'Invalid Order ID' });
+  }
   const order = await Order.findById(req.params.id);
 
   if (order) {

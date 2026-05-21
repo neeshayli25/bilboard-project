@@ -18,7 +18,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode, urljoin, urlparse
+from urllib.parse import quote, urljoin, urlparse
 
 import pygame
 import requests
@@ -41,9 +41,11 @@ class BillboardPlayer:
         self.device_token = str(config.get("deviceToken", "")).strip()
         self.device_label = str(config.get("deviceLabel", "Raspberry Pi Billboard Screen")).strip()
         self.poll_seconds = max(1, int(config.get("pollSeconds", 3) or 3))
+        self.heartbeat_seconds = max(self.poll_seconds, int(config.get("heartbeatSeconds", 10) or 10))
         self.request_timeout = max(8, int(config.get("requestTimeoutSeconds", 45) or 45))
         self.debug = bool(config.get("debug", False))
         self.current_key = ""
+        self.last_heartbeat_at = 0.0
         self.video_process: subprocess.Popen[str] | None = None
         self.running = True
 
@@ -105,12 +107,13 @@ class BillboardPlayer:
             self.draw_center_text("CDBMS Display Ready", message)
 
     def endpoint(self) -> str:
-        params = urlencode({"billboardId": self.billboard_id, "token": self.device_token})
-        return f"{self.api_base}/display/current?{params}"
+        return f"{self.api_base}/hardware/display/{quote(self.billboard_id, safe='')}"
 
     def heartbeat_url(self) -> str:
-        params = urlencode({"token": self.device_token})
-        return f"{self.api_base}/hardware/heartbeat/{self.billboard_id}?{params}"
+        return f"{self.api_base}/hardware/heartbeat/{quote(self.billboard_id, safe='')}"
+
+    def auth_headers(self) -> dict[str, str]:
+        return {"x-device-token": self.device_token}
 
     def app_origin(self) -> str:
         if self.api_base.endswith("/api"):
@@ -129,27 +132,31 @@ class BillboardPlayer:
         return urljoin(f"{self.app_origin()}/", value.lstrip("/"))
 
     def fetch_payload(self) -> dict[str, Any]:
-        response = requests.get(self.endpoint(), timeout=self.request_timeout)
+        response = requests.get(self.endpoint(), headers=self.auth_headers(), timeout=self.request_timeout)
         response.raise_for_status()
         return response.json()
 
     def send_heartbeat(self, payload: dict[str, Any]) -> None:
         if not self.billboard_id:
             return
+        if time.time() - self.last_heartbeat_at < self.heartbeat_seconds:
+            return
+        content = self.extract_content(payload)
 
         body = {
             "deviceLabel": self.device_label,
             "browserConnected": True,
             "arduinoConnected": False,
             "serialMode": "raspberry_pi_native_player",
-            "playbackState": payload.get("status") or "idle",
-            "nowPlayingTitle": payload.get("title") or "",
-            "bookingId": payload.get("bookingId") or "",
+            "playbackState": content.get("status") or payload.get("type") or "idle",
+            "nowPlayingTitle": content.get("title") or "",
+            "bookingId": content.get("bookingId") or "",
             "hardwareNotes": "Native Raspberry Pi HDMI player",
         }
 
         try:
-            requests.post(self.heartbeat_url(), json=body, timeout=10)
+            requests.post(self.heartbeat_url(), json=body, headers=self.auth_headers(), timeout=10)
+            self.last_heartbeat_at = time.time()
         except requests.RequestException:
             pass
 
@@ -223,10 +230,16 @@ class BillboardPlayer:
         ext = media_path.suffix.lower()
         return ext in {".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv"}
 
+    def extract_content(self, payload: dict[str, Any]) -> dict[str, Any]:
+        content = payload.get("content") if isinstance(payload.get("content"), dict) else payload
+        return content if isinstance(content, dict) else {}
+
     def should_show(self, payload: dict[str, Any]) -> bool:
-        if payload.get("status") != "active":
+        content = self.extract_content(payload)
+        payload_type = str(payload.get("type") or content.get("status") or "").lower()
+        if payload_type != "active" and content.get("status") != "active":
             return False
-        media_url = payload.get("imageUrl") or payload.get("ad", {}).get("mediaUrl") or ""
+        media_url = content.get("mediaUrl") or content.get("imageUrl") or content.get("ad", {}).get("mediaUrl") or ""
         return bool(media_url)
 
     def render_payload(self, payload: dict[str, Any]) -> None:
@@ -234,16 +247,17 @@ class BillboardPlayer:
             self.show_idle("Waiting for scheduled ad")
             return
 
-        raw_media_url = payload.get("imageUrl") or payload.get("ad", {}).get("mediaUrl") or ""
+        content = self.extract_content(payload)
+        raw_media_url = content.get("mediaUrl") or content.get("imageUrl") or content.get("ad", {}).get("mediaUrl") or ""
         media_url = self.resolve_media_url(raw_media_url)
         if not media_url:
             self.show_idle("No media URL")
             return
 
         media_path = self.download_media(media_url)
-        media_key = f"{payload.get('bookingId', '')}:{payload.get('updatedAt', '')}:{media_url}"
+        media_key = f"{content.get('bookingId', '')}:{content.get('updatedAt', '')}:{media_url}"
 
-        if self.is_video(payload, media_url, media_path):
+        if self.is_video(content, media_url, media_path):
             self.show_video(media_path, media_key)
         else:
             self.show_image(media_path, media_key)

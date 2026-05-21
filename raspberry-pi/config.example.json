@@ -4,6 +4,7 @@
   "deviceToken": "PASTE_SCREEN_TOKEN_HERE",
   "deviceLabel": "Raspberry Pi Billboard Screen",
   "pollSeconds": 3,
+  "heartbeatSeconds": 10,
   "requestTimeoutSeconds": 45,
   "debug": false
 }

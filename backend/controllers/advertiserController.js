@@ -22,6 +22,7 @@ import {
   isManualPaymentExpired,
   normalizeManualPaymentMethod,
 } from '../utils/manualPaymentUtils.js';
+import { getBillboardByIdOrName, isValidObjectId } from '../utils/billboardHelper.js';
 
 const hasUsableStripeSecret = (key = '') =>
   Boolean(key && key.startsWith('sk_') && !key.includes('...') && !key.toLowerCase().includes('stripe dashboard'));
@@ -292,6 +293,9 @@ export const uploadAd = async (req, res) => {
 export const updateAd = async (req, res) => {
   const { id } = req.params;
   const { title, description, duration } = req.body;
+  if (!isValidObjectId(id)) {
+    return res.status(400).json({ message: 'Invalid Ad ID' });
+  }
   let updateData = { title, description, duration };
 
   if (req.file) {
@@ -359,14 +363,14 @@ export const getBillboardAvailability = async (req, res) => {
   await expireStaleManualPaymentBookings();
   const { id } = req.params;
   const { date } = req.query;
-  const billboard = await Billboard.findById(id);
+  const billboard = await getBillboardByIdOrName(id);
   if (!billboard) return res.status(404).json({ message: 'Billboard not found' });
   const bookingDate = parseDateOnly(date);
   if (!bookingDate) {
     return res.status(400).json({ message: 'Valid date is required.' });
   }
   const bookedSlotsRaw = await Booking.find({
-    billboard: id,
+    billboard: billboard._id,
     date: bookingDate,
   });
 
@@ -433,6 +437,9 @@ export const createBooking = async (req, res) => {
   }
 
   const advertiser = await User.findById(req.user._id).select('name email phone');
+  if (!isValidObjectId(adId)) {
+    return res.status(400).json({ message: 'Invalid Ad ID' });
+  }
   const ad = await Ad.findOne({ _id: adId, advertiser: req.user._id });
   if (!ad) {
     return res.status(404).json({ message: 'Ad not found or not owned by you.' });
@@ -441,7 +448,7 @@ export const createBooking = async (req, res) => {
     return res.status(400).json({ message: 'This ad was rejected earlier. Please upload or choose another ad.' });
   }
 
-  const billboard = await Billboard.findById(billboardId);
+  const billboard = await getBillboardByIdOrName(billboardId);
   if (!billboard) {
     return res.status(404).json({ message: 'Billboard not found.' });
   }
@@ -452,7 +459,7 @@ export const createBooking = async (req, res) => {
   }
 
   const existingBookings = await Booking.find({
-    billboard: billboardId,
+    billboard: billboard._id,
     date: bookingDate,
   });
   const overlappingBooking = existingBookings.find(
@@ -475,7 +482,7 @@ export const createBooking = async (req, res) => {
   const booking = await Booking.create({
     advertiser: req.user._id,
     ad: adId,
-    billboard: billboardId,
+    billboard: billboard._id,
     date: bookingDate,
     timeSlot,
     durationMinutes: pricing.durationMinutes,
@@ -524,6 +531,9 @@ export const submitManualPayment = async (req, res) => {
 
   try {
     await expireStaleManualPaymentBookings();
+    if (!isValidObjectId(bookingId)) {
+      return res.status(400).json({ message: 'Invalid Booking ID' });
+    }
     const booking = await Booking.findById(bookingId).populate('billboard', 'name createdBy');
     if (!booking) return res.status(404).json({ message: 'Booking not found' });
     if (booking.advertiser.toString() !== req.user._id.toString()) {
@@ -644,6 +654,10 @@ export const getMyBookings = async (req, res) => {
 
 export const cancelBooking = async (req, res) => {
   await expireStaleManualPaymentBookings();
+
+  if (!isValidObjectId(req.params.id)) {
+    return res.status(400).json({ message: 'Invalid Booking ID' });
+  }
 
   const booking = await Booking.findOne({
     _id: req.params.id,
@@ -789,6 +803,9 @@ export const getNotifications = async (req, res) => {
 };
 
 export const markNotificationRead = async (req, res) => {
+  if (!isValidObjectId(req.params.id)) {
+    return res.status(400).json({ message: 'Invalid Notification ID' });
+  }
   await Notification.findByIdAndUpdate(req.params.id, { isRead: true });
   res.json({ message: 'Marked as read' });
 };

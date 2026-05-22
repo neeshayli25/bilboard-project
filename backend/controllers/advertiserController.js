@@ -400,12 +400,7 @@ export const getBillboardAvailability = async (req, res) => {
   '3:00 PM - 6:00 PM',
   '6:00 PM - 9:00 PM',
 ];
-const availableSlots = configuredSlots.filter(
-  (slot) =>
-    !bookedSlots.some((booked) =>
-      doSlotsOverlap(slot, booked)
-    )
-);
+const availableSlots = configuredSlots;
 
   // ── Status message ──────────────────────────────────────────────────────────
   // Improved: distinguishes "no slots configured" from "all slots taken"

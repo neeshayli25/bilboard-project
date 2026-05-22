@@ -15,7 +15,7 @@ import { protect, admin } from '../middleware/authMiddleware.js';
 const router = express.Router();
 
 // Public hardware display endpoint (RASPBERRY PI USES THIS)
-router.get('/display/:id', getDisplayContent);
+router.get('/display/:billboardId', getDisplayContent);
 
 // Other endpoints
 router.get('/current', getCurrentDisplayContent);
@@ -23,8 +23,8 @@ router.get('/registry', protect, admin, getDisplayRegistry);
 
 router.post('/send-ad', protect, admin, sendAdToDisplay);
 
-router.get('/heartbeat/:id', reportDisplayHeartbeat);
-router.post('/heartbeat/:id', reportDisplayHeartbeat);
+router.get('/heartbeat/:billboardId', reportDisplayHeartbeat);
+router.post('/heartbeat/:billboardId', reportDisplayHeartbeat);
 
 router.get('/status/:id', protect, admin, getBillboardHardwareStatus);
 

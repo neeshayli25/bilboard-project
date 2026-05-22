@@ -12,7 +12,7 @@ import { extractTimeRangeFromSlot, parseTimePartToMinutes } from '../utils/booki
 
 const manualDisplayOverrides = new Map();
 
-// FIX 1: Reduced from 20 minutes to 1 minute so "Display Now" stops after 1 min
+// Display Now override lasts exactly 1 minute then screen returns to idle
 const MANUAL_OVERRIDE_MS = 1 * 60 * 1000;
 
 const getIsoNow = () => new Date().toISOString();
@@ -20,46 +20,50 @@ const getIsoNow = () => new Date().toISOString();
 const getDeviceToken = (req) =>
   String(req.headers['x-device-token'] || req.query?.token || req.body?.token || '').trim();
 
+// ─── Summary builders ─────────────────────────────────────────────────────────
+
 const buildBillboardSummary = (billboard) => ({
-  id: billboard?._id || billboard || '',
-  name: billboard?.name || '',
-  city: billboard?.city || '',
-  location: billboard?.location || '',
-  imageUrl: billboard?.imageUrl || '',
-  size: billboard?.size || '',
-  type: billboard?.type || '',
+  id:         billboard?._id || billboard || '',
+  name:       billboard?.name || '',
+  city:       billboard?.city || '',
+  location:   billboard?.location || '',
+  imageUrl:   billboard?.imageUrl || '',
+  size:       billboard?.size || '',
+  type:       billboard?.type || '',
   resolution: billboard?.resolution || '',
-  status: billboard?.status || '',
+  status:     billboard?.status || '',
 });
 
 const buildAdSummary = (ad = {}) => ({
-  id: ad?._id || '',
-  title: ad?.title || 'Scheduled Ad',
-  mediaUrl: ad?.mediaUrl
+  id:          ad?._id || '',
+  title:       ad?.title || 'Scheduled Ad',
+  mediaUrl:    ad?.mediaUrl
     ? `https://cdbms-backend-w86i.onrender.com${ad.mediaUrl}`
     : '',
-  mediaType: ad?.mediaType || 'image',
-  duration: Number(ad?.duration) || 30,
+  mediaType:   ad?.mediaType || 'image',
+  duration:    Number(ad?.duration) || 30,
   description: ad?.description || '',
 });
 
 const buildIdleContent = (billboard = null) => ({
-  bookingId: '',
+  bookingId:   '',
   billboardId: billboard?._id || '',
-  title: 'No ad scheduled',
-  mediaUrl: '',
-  imageUrl: '',
-  mediaType: 'image',
-  duration: 30,
+  title:       'No ad scheduled',
+  mediaUrl:    '',
+  imageUrl:    '',
+  mediaType:   'image',
+  duration:    30,
   description: '',
-  status: 'idle',
-  source: 'schedule',
-  timeSlot: '',
-  date: null,
-  updatedAt: getIsoNow(),
-  ad: buildAdSummary(null),
-  billboard: buildBillboardSummary(billboard),
+  status:      'idle',
+  source:      'schedule',
+  timeSlot:    '',
+  date:        null,
+  updatedAt:   getIsoNow(),
+  ad:          buildAdSummary(null),
+  billboard:   buildBillboardSummary(billboard),
 });
+
+// ─── Time helpers ─────────────────────────────────────────────────────────────
 
 const getTodayBounds = (now = new Date()) => {
   const dayStart = new Date(now);
@@ -73,7 +77,7 @@ const getSlotWindow = (timeSlot = '') => {
   const [rawStart = '', rawEnd = ''] = extractTimeRangeFromSlot(timeSlot).split('-');
   return {
     startMinutes: parseTimePartToMinutes(rawStart),
-    endMinutes: parseTimePartToMinutes(rawEnd),
+    endMinutes:   parseTimePartToMinutes(rawEnd),
   };
 };
 
@@ -83,14 +87,14 @@ const isCurrentTimeInsideSlot = (timeSlot = '', now = new Date()) => {
   return startMinutes < endMinutes && nowMinutes >= startMinutes && nowMinutes < endMinutes;
 };
 
-const scheduleSort = (bookingA, bookingB) => {
-  const slotA = getSlotWindow(bookingA.timeSlot);
-  const slotB = getSlotWindow(bookingB.timeSlot);
-  return slotA.startMinutes - slotB.startMinutes || new Date(bookingA.createdAt) - new Date(bookingB.createdAt);
+const scheduleSort = (a, b) => {
+  const slotA = getSlotWindow(a.timeSlot);
+  const slotB = getSlotWindow(b.timeSlot);
+  return slotA.startMinutes - slotB.startMinutes || new Date(a.createdAt) - new Date(b.createdAt);
 };
 
 const findCurrentBooking = (schedule = [], now = new Date()) =>
-  schedule.find((booking) => isCurrentTimeInsideSlot(booking.timeSlot, now)) || null;
+  schedule.find((b) => isCurrentTimeInsideSlot(b.timeSlot, now)) || null;
 
 const bookingHasPlayableAd = (booking) =>
   Boolean(
@@ -100,63 +104,63 @@ const bookingHasPlayableAd = (booking) =>
       booking.ad.approvalStatus !== 'rejected'
   );
 
+// ─── Entry builders ───────────────────────────────────────────────────────────
+
 const toScheduleEntry = (booking, now = new Date()) => ({
-  bookingId: booking._id,
-  timeSlot: booking.timeSlot,
-  date: booking.date,
-  isCurrent: isCurrentTimeInsideSlot(booking.timeSlot, now),
-  status: booking.status,
+  bookingId:     booking._id,
+  timeSlot:      booking.timeSlot,
+  date:          booking.date,
+  isCurrent:     isCurrentTimeInsideSlot(booking.timeSlot, now),
+  status:        booking.status,
   paymentStatus: booking.paymentStatus,
-  billboard: buildBillboardSummary(booking.billboard),
-  ad: buildAdSummary(booking.ad),
+  billboard:     buildBillboardSummary(booking.billboard),
+  ad:            buildAdSummary(booking.ad),
 });
 
 const toDisplayContent = (booking, now = new Date(), source = 'schedule') => {
-  const isActiveNow = source === 'manual_push' || isCurrentTimeInsideSlot(booking.timeSlot, now);
   const ad = buildAdSummary(booking.ad);
-
   return {
-    bookingId: booking._id,
+    bookingId:   booking._id,
     billboardId: booking.billboard?._id || booking.billboard || '',
-    title: ad.title,
-    mediaUrl: ad.mediaUrl,
-    imageUrl: ad.mediaUrl,
-    mediaType: ad.mediaType,
-    duration: ad.duration,
+    title:       ad.title,
+    mediaUrl:    ad.mediaUrl,
+    imageUrl:    ad.mediaUrl,
+    mediaType:   ad.mediaType,
+    duration:    ad.duration,
     description: ad.description,
-    // FIX 4: Status is derived from real-time slot check, not stale booking.status
-    status: isCurrentTimeInsideSlot(booking.timeSlot, new Date())
-      ? 'active'
-      : 'idle',
+    // Status derived from real-time slot check, never from stale booking.status
+    status:      isCurrentTimeInsideSlot(booking.timeSlot, new Date()) ? 'active' : 'idle',
     source,
-    timeSlot: booking.timeSlot,
-    date: booking.date,
-    updatedAt: getIsoNow(),
+    timeSlot:    booking.timeSlot,
+    date:        booking.date,
+    updatedAt:   getIsoNow(),
     ad,
-    billboard: buildBillboardSummary(booking.billboard),
+    billboard:   buildBillboardSummary(booking.billboard),
   };
 };
 
 const buildDisplayEnvelope = ({ billboard, type, content, schedule = [], now = new Date() }) => ({
   type,
   content,
-  current: content,
-  billboard: buildBillboardSummary(billboard),
-  device: sanitizeDisplayConfigForDevice(billboard?.displayConfig || {}, now),
-  schedule: schedule.map((booking) => toScheduleEntry(booking, now)),
-  serverTime: now.toISOString(),
+  current:     content,
+  billboard:   buildBillboardSummary(billboard),
+  device:      sanitizeDisplayConfigForDevice(billboard?.displayConfig || {}, now),
+  schedule:    schedule.map((b) => toScheduleEntry(b, now)),
+  serverTime:  now.toISOString(),
 });
 
 const buildLegacyDisplayResponse = (envelope) => ({
   ...envelope.content,
-  type: envelope.type,
-  content: envelope.content,
-  current: envelope.current,
-  billboard: envelope.billboard,
-  device: envelope.device,
-  schedule: envelope.schedule,
-  serverTime: envelope.serverTime,
+  type:        envelope.type,
+  content:     envelope.content,
+  current:     envelope.current,
+  billboard:   envelope.billboard,
+  device:      envelope.device,
+  schedule:    envelope.schedule,
+  serverTime:  envelope.serverTime,
 });
+
+// ─── DB / auth helpers ────────────────────────────────────────────────────────
 
 const loadBillboardWithConfig = async (idOrName) => {
   const billboard = await getBillboardByIdOrName(idOrName);
@@ -174,67 +178,66 @@ const assertBillboardAccess = (billboard, userId, res) => {
 };
 
 const verifyDeviceToken = (billboard, req, res) => {
-  const providedToken = getDeviceToken(req);
-  const expectedToken = String(billboard?.displayConfig?.deviceToken || '').trim();
+  const provided = getDeviceToken(req);
+  const expected = String(billboard?.displayConfig?.deviceToken || '').trim();
 
-  if (!expectedToken) {
+  if (!expected) {
     res.status(403).json({ message: 'Display device token is not registered for this billboard.' });
     return false;
   }
-
-  if (!providedToken || !doesDeviceTokenMatch(billboard, providedToken)) {
+  if (!provided || !doesDeviceTokenMatch(billboard, provided)) {
     res.status(403).json({ message: 'Invalid display device token.' });
     return false;
   }
-
   return true;
 };
 
+// ─── Manual override (Display Now) ───────────────────────────────────────────
+
 const setManualOverride = (billboard, content) => {
   const expiresAt = Date.now() + MANUAL_OVERRIDE_MS;
-  const payload = { ...content, source: 'manual_push', status: 'active', updatedAt: getIsoNow() };
+  const payload   = { ...content, source: 'manual_push', status: 'active', updatedAt: getIsoNow() };
 
-  manualDisplayOverrides.set(String(billboard._id), {
-    ...payload,
-    expiresAt,
-  });
+  manualDisplayOverrides.set(String(billboard._id), { ...payload, expiresAt });
 
   billboard.displayConfig = {
-    ...(billboard.displayConfig?.toObject ? billboard.displayConfig.toObject() : billboard.displayConfig || {}),
+    ...(billboard.displayConfig?.toObject
+      ? billboard.displayConfig.toObject()
+      : billboard.displayConfig || {}),
     manualOverrideExpiresAt: new Date(expiresAt),
-    manualOverridePayload: payload,
+    manualOverridePayload:   payload,
   };
 
   return payload;
 };
 
 const getManualOverride = async (billboard) => {
-  const billboardId = String(billboard?._id || '');
+  const billboardId    = String(billboard?._id || '');
   const memoryOverride = manualDisplayOverrides.get(billboardId);
 
-  if (memoryOverride?.expiresAt > Date.now()) {
-    return memoryOverride;
+  // In-memory hit (server hasn't restarted)
+  if (memoryOverride?.expiresAt > Date.now()) return memoryOverride;
+
+  if (memoryOverride) manualDisplayOverrides.delete(billboardId);
+
+  // Fall back to DB-persisted override (survives server restart)
+  const dc               = billboard?.displayConfig?.toObject
+    ? billboard.displayConfig.toObject()
+    : billboard?.displayConfig || {};
+  const persistedExpiry  = dc.manualOverrideExpiresAt
+    ? new Date(dc.manualOverrideExpiresAt).getTime()
+    : 0;
+
+  if (dc.manualOverridePayload && persistedExpiry > Date.now()) {
+    return { ...dc.manualOverridePayload, expiresAt: persistedExpiry };
   }
 
-  if (memoryOverride) {
-    manualDisplayOverrides.delete(billboardId);
-  }
-
-  const displayConfig = billboard?.displayConfig?.toObject ? billboard.displayConfig.toObject() : billboard?.displayConfig || {};
-  const persistedExpiresAt = displayConfig.manualOverrideExpiresAt ? new Date(displayConfig.manualOverrideExpiresAt).getTime() : 0;
-
-  if (displayConfig.manualOverridePayload && persistedExpiresAt > Date.now()) {
-    return {
-      ...displayConfig.manualOverridePayload,
-      expiresAt: persistedExpiresAt,
-    };
-  }
-
-  if (displayConfig.manualOverridePayload || displayConfig.manualOverrideExpiresAt) {
+  // Override has expired — clear it from DB
+  if (dc.manualOverridePayload || dc.manualOverrideExpiresAt) {
     billboard.displayConfig = {
-      ...displayConfig,
+      ...dc,
       manualOverrideExpiresAt: null,
-      manualOverridePayload: null,
+      manualOverridePayload:   null,
     };
     await billboard.save();
   }
@@ -242,98 +245,117 @@ const getManualOverride = async (billboard) => {
   return null;
 };
 
+// ─── Schedule loader ──────────────────────────────────────────────────────────
+
 const getScheduleForBillboard = async (billboardId, now = new Date()) => {
   const { dayStart, dayEnd } = getTodayBounds(now);
+
   const bookings = await Booking.find({
-    billboard: billboardId,
-    date: { $gte: dayStart, $lt: dayEnd },
-    status: { $in: ['approved', 'scheduled', 'active'] },
+    billboard:     billboardId,
+    date:          { $gte: dayStart, $lt: dayEnd },
+    status:        { $in: ['approved', 'scheduled', 'active'] },
     paymentStatus: 'paid',
   })
-    .populate('ad', 'title mediaUrl mediaType duration description approvalStatus isActive')
-    .populate('billboard', 'name city location imageUrl size type resolution status displayConfig')
+    .populate('ad',       'title mediaUrl mediaType duration description approvalStatus isActive')
+    .populate('billboard','name city location imageUrl size type resolution status displayConfig')
     .sort({ date: 1, createdAt: 1 });
 
   return bookings.filter(bookingHasPlayableAd).sort(scheduleSort);
 };
 
+// ─── Core display-state resolver ──────────────────────────────────────────────
+
 const resolveDisplayState = async (billboard, now = new Date()) => {
-  const schedule = await getScheduleForBillboard(billboard._id, now);
+  const schedule       = await getScheduleForBillboard(billboard._id, now);
   const manualOverride = await getManualOverride(billboard);
 
+  // 1. Active manual override (Display Now) wins over schedule
   if (manualOverride?.mediaUrl || manualOverride?.imageUrl) {
     return {
       type: 'active',
       content: {
         ...manualOverride,
-        mediaUrl: manualOverride.mediaUrl || manualOverride.imageUrl || '',
-        imageUrl: manualOverride.imageUrl || manualOverride.mediaUrl || '',
+        mediaUrl:  manualOverride.mediaUrl  || manualOverride.imageUrl || '',
+        imageUrl:  manualOverride.imageUrl  || manualOverride.mediaUrl || '',
       },
       schedule,
     };
   }
 
+  // 2. Currently-active scheduled booking
   const currentBooking = findCurrentBooking(schedule, now);
   if (currentBooking) {
     if (currentBooking.status !== 'active') {
       currentBooking.status = 'active';
       await currentBooking.save();
     }
-
     return {
-      type: 'active',
+      type:    'active',
       content: toDisplayContent(currentBooking, now, 'schedule'),
       schedule,
     };
   }
 
-  // FIX 2 & 3: Removed schedule_preview block entirely.
-  // Pi now goes idle when no booking is currently active — no premature ad previews.
+  // 3. Nothing active — idle
   return {
-    type: 'idle',
+    type:    'idle',
     content: buildIdleContent(billboard),
     schedule,
   };
 };
 
+// ─── Playback-state updater ───────────────────────────────────────────────────
+
 const updateBillboardPlaybackState = async (billboard, content, req) => {
   const now = new Date();
   billboard.displayConfig = {
-    ...(billboard.displayConfig?.toObject ? billboard.displayConfig.toObject() : billboard.displayConfig || {}),
-    lastPayloadAt: now,
-    lastPlaybackState: content.status || 'idle',
-    lastNowPlayingTitle: content.title || '',
-    lastBookingId: content.bookingId || null,
-    lastKnownIp: req.ip || billboard.displayConfig?.lastKnownIp || '',
-    lastKnownUserAgent: req.get('user-agent') || billboard.displayConfig?.lastKnownUserAgent || '',
+    ...(billboard.displayConfig?.toObject
+      ? billboard.displayConfig.toObject()
+      : billboard.displayConfig || {}),
+    lastPayloadAt:        now,
+    lastPlaybackState:    content.status || 'idle',
+    lastNowPlayingTitle:  content.title  || '',
+    lastBookingId:        content.bookingId || null,
+    lastKnownIp:          req.ip || billboard.displayConfig?.lastKnownIp || '',
+    lastKnownUserAgent:   req.get('user-agent') || billboard.displayConfig?.lastKnownUserAgent || '',
   };
   await billboard.save();
 };
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// EXPORTED CONTROLLERS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── Public billboard details (no auth) ───────────────────────────────────────
 export const getBillboardPublicDetails = async (req, res) => {
   try {
     const billboard = await loadBillboardWithConfig(req.params.id);
-    if (!billboard) {
-      return res.status(404).json({ message: 'Billboard not found' });
-    }
+    if (!billboard) return res.status(404).json({ message: 'Billboard not found' });
 
-    const now = new Date();
+    const now   = new Date();
     const state = await resolveDisplayState(billboard, now);
 
     return res.json({
       billboard: {
         ...buildBillboardSummary(billboard),
-        pricePerHour: billboard.pricePerHour,
+        pricePerHour:   billboard.pricePerHour,
         pricePerMinute: billboard.pricePerMinute,
-        timeSlots: billboard.timeSlots || [],
+        timeSlots:      billboard.timeSlots || [],
       },
-      display: buildDisplayEnvelope({ billboard, type: state.type, content: state.content, schedule: state.schedule, now }),
+      display: buildDisplayEnvelope({
+        billboard,
+        type:     state.type,
+        content:  state.content,
+        schedule: state.schedule,
+        now,
+      }),
     });
   } catch (error) {
     return res.status(500).json({ message: 'Failed to load billboard', error: error.message });
   }
 };
 
+// ─── Push a booking to display (shared helper — called by admin & advertiser) ─
 export const pushBookingToDisplay = async ({ bookingId, actorId, actorMode = 'admin', req }) => {
   if (!isValidObjectId(bookingId)) {
     return { status: 400, body: { message: 'Invalid Booking ID' } };
@@ -341,11 +363,9 @@ export const pushBookingToDisplay = async ({ bookingId, actorId, actorMode = 'ad
 
   const booking = await Booking.findById(bookingId)
     .populate('billboard', 'name city location imageUrl size type resolution createdBy displayConfig status')
-    .populate('ad', 'title mediaUrl mediaType duration description approvalStatus isActive');
+    .populate('ad',        'title mediaUrl mediaType duration description approvalStatus isActive');
 
-  if (!booking) {
-    return { status: 404, body: { message: 'Booking not found' } };
-  }
+  if (!booking) return { status: 404, body: { message: 'Booking not found' } };
 
   const hasAccess =
     actorMode === 'advertiser'
@@ -355,11 +375,19 @@ export const pushBookingToDisplay = async ({ bookingId, actorId, actorMode = 'ad
   if (!hasAccess) {
     return {
       status: 403,
-      body: { message: actorMode === 'advertiser' ? 'Not authorized for this booking.' : 'Not authorized for this billboard.' },
+      body: {
+        message: actorMode === 'advertiser'
+          ? 'Not authorized for this booking.'
+          : 'Not authorized for this billboard.',
+      },
     };
   }
 
-  if (!bookingHasPlayableAd(booking) || booking.paymentStatus !== 'paid' || !['approved', 'scheduled', 'active'].includes(booking.status)) {
+  if (
+    !bookingHasPlayableAd(booking) ||
+    booking.paymentStatus !== 'paid'   ||
+    !['approved', 'scheduled', 'active'].includes(booking.status)
+  ) {
     return {
       status: 400,
       body: { message: 'Only paid bookings with playable ad media can be pushed to the display.' },
@@ -367,31 +395,44 @@ export const pushBookingToDisplay = async ({ bookingId, actorId, actorMode = 'ad
   }
 
   await ensureBillboardDisplayConfig(booking.billboard);
-  const now = new Date();
-  const content = setManualOverride(booking.billboard, toDisplayContent(booking, now, 'manual_push'));
+  const now     = new Date();
+  const content = setManualOverride(
+    booking.billboard,
+    toDisplayContent(booking, now, 'manual_push')
+  );
   await updateBillboardPlaybackState(booking.billboard, content, req);
   await booking.billboard.save();
 
   const schedule = await getScheduleForBillboard(booking.billboard._id, now);
-  const envelope = buildDisplayEnvelope({ billboard: booking.billboard, type: 'active', content, schedule, now });
+  const envelope = buildDisplayEnvelope({
+    billboard: booking.billboard,
+    type:      'active',
+    content,
+    schedule,
+    now,
+  });
 
-  return {
-    status: 200,
-    body: {
-      message: 'Sent to display',
-      data: envelope,
-    },
-  };
+  return { status: 200, body: { message: 'Sent to display', data: envelope } };
 };
 
+// ─── Admin: send any ad / booking to display (Display Now) ───────────────────
 export const sendAdToDisplay = async (req, res) => {
   try {
-    const { bookingId, billboardId, imageUrl, mediaUrl, mediaType = 'image', duration = 30, title = 'Live Campaign' } = req.body;
+    const {
+      bookingId,
+      billboardId,
+      imageUrl,
+      mediaUrl,
+      mediaType = 'image',
+      duration  = 30,
+      title     = 'Live Campaign',
+    } = req.body;
 
+    // If a bookingId is supplied use the richer helper
     if (bookingId) {
       const result = await pushBookingToDisplay({
         bookingId,
-        actorId: req.user._id,
+        actorId:   req.user._id,
         actorMode: 'admin',
         req,
       });
@@ -399,73 +440,57 @@ export const sendAdToDisplay = async (req, res) => {
     }
 
     const billboard = await loadBillboardWithConfig(billboardId);
-    if (!billboard) {
-      return res.status(404).json({ message: 'Billboard not found' });
-    }
-
+    if (!billboard) return res.status(404).json({ message: 'Billboard not found' });
     if (!assertBillboardAccess(billboard, req.user._id, res)) return;
+
+    const resolvedMedia = mediaUrl || imageUrl || '';
 
     const content = setManualOverride(billboard, {
       ...buildIdleContent(billboard),
       title,
-      mediaUrl: mediaUrl || imageUrl || '',
-      imageUrl: imageUrl || mediaUrl || '',
+      mediaUrl:  resolvedMedia,
+      imageUrl:  resolvedMedia,
       mediaType,
-      duration: Number(duration) || 30,
-      // FIX 5: Always force 'active' when Display Now is triggered — no conditional
-      status: 'active',
-      source: 'manual_push',
-      ad: buildAdSummary({
-        title,
-        mediaUrl: mediaUrl || imageUrl || '',
-        mediaType,
-        duration,
-      }),
+      duration:  Number(duration) || 30,
+      status:    'active',
+      source:    'manual_push',
+      ad: buildAdSummary({ title, mediaUrl: resolvedMedia, mediaType, duration }),
     });
 
     await updateBillboardPlaybackState(billboard, content, req);
     await billboard.save();
 
-    const now = new Date();
-    const envelope = buildDisplayEnvelope({
-  billboard,
-  type: 'active',
-  content,
-  schedule: [],
-  now,
-});
+    const now      = new Date();
+    const envelope = buildDisplayEnvelope({ billboard, type: 'active', content, schedule: [], now });
 
-    return res.status(200).json({
-      message: 'Sent to display',
-      data: envelope,
-    });
+    return res.status(200).json({ message: 'Sent to display', data: envelope });
   } catch (error) {
     return res.status(500).json({ message: 'Failed to send ad to display', error: error.message });
   }
 };
 
+// ─── Admin: list all billboards with display status ───────────────────────────
 export const getDisplayRegistry = async (req, res) => {
   try {
     const billboards = await Billboard.find({})
       .select('name city location status imageUrl size type resolution displayConfig createdAt')
       .sort({ name: 1, createdAt: -1 });
 
-    await Promise.all(billboards.map((billboard) => ensureBillboardDisplayConfig(billboard)));
+    await Promise.all(billboards.map((b) => ensureBillboardDisplayConfig(b)));
 
     return res.json(
-      billboards.map((billboard) => ({
-        ...buildBillboardSummary(billboard),
-        displayConfig: sanitizeDisplayConfigForAdmin(billboard.displayConfig || {}, new Date()),
+      billboards.map((b) => ({
+        ...buildBillboardSummary(b),
+        displayConfig: sanitizeDisplayConfigForAdmin(b.displayConfig || {}, new Date()),
       }))
     );
   } catch (error) {
-    return res.status(500).json({
-      message: 'Failed to load display registry',
-      error: error.message,
-    });
+    return res.status(500).json({ message: 'Failed to load display registry', error: error.message });
   }
 };
 
+// ─── Pi: get current display content (legacy flat response) ──────────────────
+//  Route must be:  GET /hardware/display  (no :id — uses query param)
 export const getCurrentDisplayContent = async (req, res) => {
   try {
     const billboardRef = req.query.billboardId || req.query.id || req.params.id;
@@ -474,27 +499,30 @@ export const getCurrentDisplayContent = async (req, res) => {
       const fallback = buildIdleContent();
       return res.status(200).json(
         buildLegacyDisplayResponse({
-          type: 'idle',
-          content: fallback,
-          current: fallback,
-          billboard: buildBillboardSummary(null),
-          device: sanitizeDisplayConfigForDevice({}, new Date()),
-          schedule: [],
-          serverTime: getIsoNow(),
+          type:        'idle',
+          content:     fallback,
+          current:     fallback,
+          billboard:   buildBillboardSummary(null),
+          device:      sanitizeDisplayConfigForDevice({}, new Date()),
+          schedule:    [],
+          serverTime:  getIsoNow(),
         })
       );
     }
 
     const billboard = await loadBillboardWithConfig(billboardRef);
-    if (!billboard) {
-      return res.status(404).json({ message: 'Billboard not found' });
-    }
-
+    if (!billboard) return res.status(404).json({ message: 'Billboard not found' });
     if (!verifyDeviceToken(billboard, req, res)) return;
 
-    const now = new Date();
-    const state = await resolveDisplayState(billboard, now);
-    const envelope = buildDisplayEnvelope({ billboard, type: state.type, content: state.content, schedule: state.schedule, now });
+    const now      = new Date();
+    const state    = await resolveDisplayState(billboard, now);
+    const envelope = buildDisplayEnvelope({
+      billboard,
+      type:     state.type,
+      content:  state.content,
+      schedule: state.schedule,
+      now,
+    });
     await updateBillboardPlaybackState(billboard, state.content, req);
 
     return res.status(200).json(buildLegacyDisplayResponse(envelope));
@@ -503,18 +531,24 @@ export const getCurrentDisplayContent = async (req, res) => {
   }
 };
 
+// ─── Pi: get display content by billboard ID  ─────────────────────────────────
+//  Route must be:  GET /hardware/display/:billboardId
 export const getDisplayContent = async (req, res) => {
   try {
-    const billboard = await loadBillboardWithConfig(req.params.id);
-    if (!billboard) {
-      return res.status(404).json({ message: 'Billboard not found' });
-    }
-
+    // FIX: use billboardId (matches route param :billboardId), not .id
+    const billboard = await loadBillboardWithConfig(req.params.billboardId);
+    if (!billboard) return res.status(404).json({ message: 'Billboard not found' });
     if (!verifyDeviceToken(billboard, req, res)) return;
 
-    const now = new Date();
-    const state = await resolveDisplayState(billboard, now);
-    const envelope = buildDisplayEnvelope({ billboard, type: state.type, content: state.content, schedule: state.schedule, now });
+    const now      = new Date();
+    const state    = await resolveDisplayState(billboard, now);
+    const envelope = buildDisplayEnvelope({
+      billboard,
+      type:     state.type,
+      content:  state.content,
+      schedule: state.schedule,
+      now,
+    });
     await updateBillboardPlaybackState(billboard, state.content, req);
 
     return res.status(200).json(envelope);
@@ -523,67 +557,67 @@ export const getDisplayContent = async (req, res) => {
   }
 };
 
+// ─── Pi: heartbeat ────────────────────────────────────────────────────────────
+//  Route must be:  POST /hardware/heartbeat/:billboardId
 export const reportDisplayHeartbeat = async (req, res) => {
   try {
-    const billboard = await loadBillboardWithConfig(req.params.id);
-    if (!billboard) {
-      return res.status(404).json({ message: 'Billboard not found' });
-    }
-
+    // FIX: use billboardId (matches route param :billboardId), not .id
+    const billboard = await loadBillboardWithConfig(req.params.billboardId);
+    if (!billboard) return res.status(404).json({ message: 'Billboard not found' });
     if (!verifyDeviceToken(billboard, req, res)) return;
 
     const now = new Date();
     const {
-      deviceLabel = '',
+      deviceLabel      = '',
       browserConnected = true,
       arduinoConnected = false,
-      serialMode = 'raspberry_pi_native_player',
-      playbackState = 'idle',
-      nowPlayingTitle = '',
-      bookingId = '',
-      hardwareNotes = '',
+      serialMode       = 'raspberry_pi_native_player',
+      playbackState    = 'idle',
+      nowPlayingTitle  = '',
+      bookingId        = '',
+      hardwareNotes    = '',
     } = req.body || {};
 
     billboard.displayConfig = {
-      ...(billboard.displayConfig?.toObject ? billboard.displayConfig.toObject() : billboard.displayConfig || {}),
-      deviceLabel: String(deviceLabel || billboard.displayConfig?.deviceLabel || '').trim(),
-      lastHeartbeatAt: now,
-      lastPlaybackState: String(playbackState || 'idle').trim() || 'idle',
-      lastNowPlayingTitle: String(nowPlayingTitle || '').trim(),
-      lastBookingId: bookingId || null,
-      lastKnownIp: req.ip || '',
+      ...(billboard.displayConfig?.toObject
+        ? billboard.displayConfig.toObject()
+        : billboard.displayConfig || {}),
+      deviceLabel:        String(deviceLabel || billboard.displayConfig?.deviceLabel || '').trim(),
+      lastHeartbeatAt:    now,
+      lastPlaybackState:  String(playbackState || 'idle').trim() || 'idle',
+      lastNowPlayingTitle:String(nowPlayingTitle || '').trim(),
+      lastBookingId:      bookingId || null,
+      lastKnownIp:        req.ip || '',
       lastKnownUserAgent: req.get('user-agent') || '',
-      browserConnected: Boolean(browserConnected),
-      arduinoConnected: Boolean(arduinoConnected),
-      serialMode: String(serialMode || 'raspberry_pi_native_player').trim() || 'raspberry_pi_native_player',
-      hardwareNotes: String(hardwareNotes || '').trim().slice(0, 250),
+      browserConnected:   Boolean(browserConnected),
+      arduinoConnected:   Boolean(arduinoConnected),
+      serialMode:         String(serialMode || 'raspberry_pi_native_player').trim(),
+      hardwareNotes:      String(hardwareNotes || '').trim().slice(0, 250),
     };
     await billboard.save();
 
     const state = await resolveDisplayState(billboard, now);
 
     return res.json({
-      message: 'Heartbeat received.',
+      message:     'Heartbeat received.',
       heartbeatId: crypto.randomUUID(),
-      device: sanitizeDisplayConfigForAdmin(billboard.displayConfig, now),
-      current: state.content,
-      type: state.type,
+      device:      sanitizeDisplayConfigForAdmin(billboard.displayConfig, now),
+      current:     state.content,
+      type:        state.type,
     });
   } catch (error) {
     return res.status(500).json({ message: 'Failed to record display heartbeat', error: error.message });
   }
 };
 
+// ─── Admin: hardware status for one billboard ─────────────────────────────────
 export const getBillboardHardwareStatus = async (req, res) => {
   try {
     const billboard = await loadBillboardWithConfig(req.params.id);
-    if (!billboard) {
-      return res.status(404).json({ message: 'Billboard not found' });
-    }
-
+    if (!billboard) return res.status(404).json({ message: 'Billboard not found' });
     if (!assertBillboardAccess(billboard, req.user._id, res)) return;
 
-    const now = new Date();
+    const now   = new Date();
     const state = await resolveDisplayState(billboard, now);
 
     return res.json({
@@ -591,38 +625,38 @@ export const getBillboardHardwareStatus = async (req, res) => {
         ...buildBillboardSummary(billboard),
         displayConfig: sanitizeDisplayConfigForAdmin(billboard.displayConfig, now),
       },
-      current: state.content,
-      type: state.type,
-      schedule: state.schedule.map((booking) => toScheduleEntry(booking, now)),
+      current:  state.content,
+      type:     state.type,
+      schedule: state.schedule.map((b) => toScheduleEntry(b, now)),
     });
   } catch (error) {
     return res.status(500).json({ message: 'Failed to load billboard hardware status', error: error.message });
   }
 };
 
+// ─── Admin: register a display device for a billboard ────────────────────────
 export const registerDisplayDevice = async (req, res) => {
   try {
     const billboard = await loadBillboardWithConfig(req.params.id);
-    if (!billboard) {
-      return res.status(404).json({ message: 'Billboard not found' });
-    }
-
+    if (!billboard) return res.status(404).json({ message: 'Billboard not found' });
     if (!assertBillboardAccess(billboard, req.user._id, res)) return;
 
     billboard.displayConfig = {
-      ...(billboard.displayConfig?.toObject ? billboard.displayConfig.toObject() : billboard.displayConfig || {}),
-      deviceLabel: String(req.body?.deviceLabel || billboard.displayConfig?.deviceLabel || billboard.name || '').trim(),
+      ...(billboard.displayConfig?.toObject
+        ? billboard.displayConfig.toObject()
+        : billboard.displayConfig || {}),
+      deviceLabel:      String(req.body?.deviceLabel || billboard.displayConfig?.deviceLabel || billboard.name || '').trim(),
       browserConnected: false,
       arduinoConnected: false,
-      serialMode: 'raspberry_pi_native_player',
-      lastPlaybackState: 'registered',
+      serialMode:       'raspberry_pi_native_player',
+      lastPlaybackState:'registered',
     };
     await ensureBillboardDisplayConfig(billboard);
     await billboard.save();
 
     return res.json({
-      message: 'Display device registered.',
-      billboard: buildBillboardSummary(billboard),
+      message:       'Display device registered.',
+      billboard:     buildBillboardSummary(billboard),
       displayConfig: sanitizeDisplayConfigForAdmin(billboard.displayConfig),
     });
   } catch (error) {
@@ -630,34 +664,22 @@ export const registerDisplayDevice = async (req, res) => {
   }
 };
 
+// ─── Admin: rotate device token ───────────────────────────────────────────────
 export const rotateBillboardDeviceToken = async (req, res) => {
   try {
     const billboard = await Billboard.findById(req.params.id);
-
-    if (!billboard) {
-      return res.status(404).json({
-        message: 'Billboard not found'
-      });
-    }
+    if (!billboard) return res.status(404).json({ message: 'Billboard not found' });
 
     const newToken = crypto.randomBytes(18).toString('hex');
 
     billboard.displayConfig = {
       ...(billboard.displayConfig || {}),
-      deviceToken: newToken
+      deviceToken: newToken,
     };
-
     await billboard.save();
 
-    return res.json({
-      success: true,
-      token: newToken,
-      billboardId: billboard._id
-    });
-
+    return res.json({ success: true, token: newToken, billboardId: billboard._id });
   } catch (error) {
-    return res.status(500).json({
-      message: error.message
-    });
+    return res.status(500).json({ message: error.message });
   }
 };

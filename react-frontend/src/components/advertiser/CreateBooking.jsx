@@ -60,15 +60,13 @@ function formatPkr(value) {
   return `PKR ${Number(value || 0).toLocaleString("en-PK", { maximumFractionDigits: 0 })}`;
 }
 
-function parse24HourToMinutes(timeStr) {
-
-  if (!timeStr) return 0;
+function parseTimeToMinutes(timeStr = "") {
 
   const cleaned = String(timeStr).trim();
 
-  const [time, modifier] = cleaned.split(" ");
+  if (!cleaned) return 0;
 
-  if (!time) return 0;
+  const [time, modifier] = cleaned.split(" ");
 
   let [hours, minutes] = time.split(":").map(Number);
 
@@ -83,8 +81,30 @@ function parse24HourToMinutes(timeStr) {
   return (hours * 60) + minutes;
 }
 
-function format24To12Hour(timeStr) {
-  return timeStr;
+function minutesTo12Hour(totalMinutes = 0) {
+
+  let hours = Math.floor(totalMinutes / 60);
+  let minutes = totalMinutes % 60;
+
+  const modifier = hours >= 12 ? "PM" : "AM";
+
+  hours = hours % 12;
+
+  if (hours === 0) hours = 12;
+
+  return `${hours}:${String(minutes).padStart(2, "0")} ${modifier}`;
+}
+
+function format24To12Hour(timeStr = "") {
+
+  return minutesTo12Hour(parseTimeToMinutes(timeStr));
+}
+
+function addMinutesToTime(timeStr = "", minutesToAdd = 0) {
+
+  const total = parseTimeToMinutes(timeStr) + Number(minutesToAdd || 0);
+
+  return minutesTo12Hour(total);
 }
 
 function formatTimeRange(range) {
@@ -105,17 +125,7 @@ function extractWindowBounds(range = "") {
 
 function getSlotDurationMinutes(range = "") {
   const { start, end } = extractWindowBounds(range);
-  return Math.max(0, parse24HourToMinutes(end) - parse24HourToMinutes(start));
-}
-
-function addMinutesToTime(timeStr, minutesToAdd) {
-  const baseMinutes = parse24HourToMinutes(timeStr);
-  const nextMinutes = baseMinutes + Number(minutesToAdd || 0);
-  if (!timeStr || !Number.isFinite(nextMinutes) || nextMinutes < 0 || nextMinutes > 24 * 60) return "";
-
-  const hours = Math.floor(nextMinutes / 60);
-  const minutes = nextMinutes % 60;
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+  return Math.max(0, parseTimeToMinutes(end) - parseTimeToMinutes(start));
 }
 
 function formatDateCard(dateValue) {
@@ -132,8 +142,8 @@ function buildStartTimeOptions(windowSlot = "", runMinutes = 1) {
   const { start, end } = extractWindowBounds(windowSlot);
   if (!start || !end) return [];
 
-  const startMinutes = parse24HourToMinutes(start);
-  const endMinutes = parse24HourToMinutes(end);
+  const startMinutes = parseTimeToMinutes(start);
+  const endMinutes = parseTimeToMinutes(end);
   const safeRunMinutes = Math.max(1, Number(runMinutes || 1));
   const lastPossibleStart = endMinutes - safeRunMinutes;
 
@@ -143,7 +153,7 @@ function buildStartTimeOptions(windowSlot = "", runMinutes = 1) {
   for (let minutes = startMinutes; minutes <= lastPossibleStart; minutes += 1) {
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
-    options.push(`${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`);
+    options.push(minutesTo12Hour(minutes));
   }
   return options;
 }
@@ -151,9 +161,9 @@ function buildStartTimeOptions(windowSlot = "", runMinutes = 1) {
 function slotContainsRange(containerSlot, startTime, endTime) {
   const [containerStart = 0, containerEnd = 0] = String(containerSlot || "")
     .split("-")
-    .map((value) => parse24HourToMinutes(value));
-  const startMinutes = parse24HourToMinutes(startTime);
-  const endMinutes = parse24HourToMinutes(endTime);
+    .map((value) => parseTimeToMinutes(value));
+  const startMinutes = parseTimeToMinutes(startTime);
+  const endMinutes = parseTimeToMinutes(endTime);
   return startMinutes >= containerStart && endMinutes <= containerEnd;
 }
 
@@ -285,13 +295,25 @@ export default function CreateBooking() {
       grouped.set(datePrefix, (grouped.get(datePrefix) || 0) + 1);
     });
 
-    return Array.from(grouped.entries())
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([value, slotCount]) => ({
-        value,
-        slotCount,
-        ...formatDateCard(value),
-      }));
+    const today = new Date();
+
+today.setHours(0,0,0,0);
+
+return Array.from(grouped.entries())
+  .filter(([value]) => {
+
+    const slotDate = new Date(value);
+
+    slotDate.setHours(0,0,0,0);
+
+    return slotDate >= today;
+  })
+  .sort(([left], [right]) => left.localeCompare(right))
+  .map(([value, slotCount]) => ({
+    value,
+    slotCount,
+    ...formatDateCard(value),
+  }));
   }, [billboard?.timeSlots]);
 
   const selectedWindowBounds = useMemo(() => extractWindowBounds(selectedWindow), [selectedWindow]);
@@ -303,7 +325,7 @@ export default function CreateBooking() {
 
   const maxDurationForCurrentStart = useMemo(() => {
     if (!selectedWindow || !startTime) return 0;
-    return Math.max(0, parse24HourToMinutes(selectedWindowBounds.end) - parse24HourToMinutes(startTime));
+    return Math.max(0, parseTimeToMinutes(selectedWindowBounds.end) - parseTimeToMinutes(startTime));
   }, [selectedWindow, selectedWindowBounds.end, startTime]);
 
   const quickDurationOptions = useMemo(
@@ -357,8 +379,8 @@ export default function CreateBooking() {
     if (!selectedWindow) return { valid: false, message: "Pick one available window card first." };
     if (!startTime || !endTime) return { valid: false, message: "Select the start time and total running minutes." };
 
-    const startMinutes = parse24HourToMinutes(startTime);
-    const endMinutes = parse24HourToMinutes(endTime);
+    const startMinutes = parseTimeToMinutes(startTime);
+    const endMinutes = parseTimeToMinutes(endTime);
     if (endMinutes <= startMinutes) return { valid: false, message: "End time must be later than start time." };
     if (!availability.availableSlots.length) {
       return {

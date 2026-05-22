@@ -15,6 +15,20 @@ const manualDisplayOverrides = new Map();
 // Display Now override lasts exactly 1 minute then screen returns to idle
 const MANUAL_OVERRIDE_MS = 1 * 60 * 1000;
 
+// ─── PKT Timezone Fix ─────────────────────────────────────────────────────────
+// Render.com servers run on UTC. Pakistan Standard Time = UTC+5.
+// Without this fix, isCurrentTimeInsideSlot() compares UTC hours against PKT
+// slot times and never matches — scheduled ads never play.
+//
+// getNowPKT() returns a Date whose *UTC fields* represent PKT wall-clock time.
+// Example: UTC 21:32 May 21  →  getNowPKT().getUTCHours() = 2
+//                                getNowPKT().getUTCDate()  = 22   (2:32 AM May 22 PKT)
+//
+// To change timezone: update PKT_OFFSET_HOURS (e.g. 0 for UTC, 5 for PKT).
+const PKT_OFFSET_HOURS = 5;
+const PKT_OFFSET_MS    = PKT_OFFSET_HOURS * 60 * 60 * 1000;
+const getNowPKT        = () => new Date(Date.now() + PKT_OFFSET_MS);
+
 const getIsoNow = () => new Date().toISOString();
 
 const getDeviceToken = (req) =>
@@ -63,13 +77,23 @@ const buildIdleContent = (billboard = null) => ({
   billboard:   buildBillboardSummary(billboard),
 });
 
-// ─── Time helpers ─────────────────────────────────────────────────────────────
+// ─── Time helpers (PKT-aware) ─────────────────────────────────────────────────
 
-const getTodayBounds = (now = new Date()) => {
-  const dayStart = new Date(now);
-  dayStart.setHours(0, 0, 0, 0);
-  const dayEnd = new Date(dayStart);
-  dayEnd.setDate(dayStart.getDate() + 1);
+/**
+ * Returns UTC timestamps bracketing "today in PKT" for MongoDB queries.
+ *
+ * Why: booking.date is stored as UTC-midnight of the chosen date
+ * (e.g. 2026-05-22T00:00:00Z). At 2:32 AM PKT the server UTC clock shows
+ * 21:32 May 21, so a plain setHours(0,0,0,0) gives May 21 bounds and misses
+ * the May 22 booking entirely. Using getNowPKT() fixes this.
+ */
+const getTodayBounds = (nowPKT = getNowPKT()) => {
+  const y = nowPKT.getUTCFullYear();
+  const m = nowPKT.getUTCMonth();
+  const d = nowPKT.getUTCDate();
+  // PKT midnight expressed in UTC
+  const dayStart = new Date(Date.UTC(y, m, d) - PKT_OFFSET_MS);
+  const dayEnd   = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
   return { dayStart, dayEnd };
 };
 
@@ -81,20 +105,29 @@ const getSlotWindow = (timeSlot = '') => {
   };
 };
 
-const isCurrentTimeInsideSlot = (timeSlot = '', now = new Date()) => {
+/**
+ * Checks whether the current PKT time falls inside a booked timeSlot.
+ * Uses getUTCHours/Minutes on the PKT-shifted Date so arithmetic is in PKT.
+ *
+ * Example: slot "2:32 AM-2:34 AM", PKT time 2:33 AM
+ *   startMinutes = 152, endMinutes = 154
+ *   nowMinutes   = getNowPKT().getUTCHours()*60 + getUTCMinutes() = 153  ✓
+ */
+const isCurrentTimeInsideSlot = (timeSlot = '', nowPKT = getNowPKT()) => {
   const { startMinutes, endMinutes } = getSlotWindow(timeSlot);
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const nowMinutes = nowPKT.getUTCHours() * 60 + nowPKT.getUTCMinutes();
   return startMinutes < endMinutes && nowMinutes >= startMinutes && nowMinutes < endMinutes;
 };
 
 const scheduleSort = (a, b) => {
   const slotA = getSlotWindow(a.timeSlot);
   const slotB = getSlotWindow(b.timeSlot);
-  return slotA.startMinutes - slotB.startMinutes || new Date(a.createdAt) - new Date(b.createdAt);
+  return slotA.startMinutes - slotB.startMinutes
+    || new Date(a.createdAt) - new Date(b.createdAt);
 };
 
-const findCurrentBooking = (schedule = [], now = new Date()) =>
-  schedule.find((b) => isCurrentTimeInsideSlot(b.timeSlot, now)) || null;
+const findCurrentBooking = (schedule = [], nowPKT = getNowPKT()) =>
+  schedule.find((b) => isCurrentTimeInsideSlot(b.timeSlot, nowPKT)) || null;
 
 const bookingHasPlayableAd = (booking) =>
   Boolean(
@@ -106,18 +139,18 @@ const bookingHasPlayableAd = (booking) =>
 
 // ─── Entry builders ───────────────────────────────────────────────────────────
 
-const toScheduleEntry = (booking, now = new Date()) => ({
+const toScheduleEntry = (booking, nowPKT = getNowPKT()) => ({
   bookingId:     booking._id,
   timeSlot:      booking.timeSlot,
   date:          booking.date,
-  isCurrent:     isCurrentTimeInsideSlot(booking.timeSlot, now),
+  isCurrent:     isCurrentTimeInsideSlot(booking.timeSlot, nowPKT),
   status:        booking.status,
   paymentStatus: booking.paymentStatus,
   billboard:     buildBillboardSummary(booking.billboard),
   ad:            buildAdSummary(booking.ad),
 });
 
-const toDisplayContent = (booking, now = new Date(), source = 'schedule') => {
+const toDisplayContent = (booking, nowPKT = getNowPKT(), source = 'schedule') => {
   const ad = buildAdSummary(booking.ad);
   return {
     bookingId:   booking._id,
@@ -128,8 +161,8 @@ const toDisplayContent = (booking, now = new Date(), source = 'schedule') => {
     mediaType:   ad.mediaType,
     duration:    ad.duration,
     description: ad.description,
-    // Status derived from real-time slot check, never from stale booking.status
-    status:      isCurrentTimeInsideSlot(booking.timeSlot, new Date()) ? 'active' : 'idle',
+    // Always derive status from real-time PKT slot check — never trust stale booking.status
+    status:      isCurrentTimeInsideSlot(booking.timeSlot, getNowPKT()) ? 'active' : 'idle',
     source,
     timeSlot:    booking.timeSlot,
     date:        booking.date,
@@ -139,25 +172,25 @@ const toDisplayContent = (booking, now = new Date(), source = 'schedule') => {
   };
 };
 
-const buildDisplayEnvelope = ({ billboard, type, content, schedule = [], now = new Date() }) => ({
+const buildDisplayEnvelope = ({ billboard, type, content, schedule = [], nowPKT = getNowPKT() }) => ({
   type,
   content,
-  current:     content,
-  billboard:   buildBillboardSummary(billboard),
-  device:      sanitizeDisplayConfigForDevice(billboard?.displayConfig || {}, now),
-  schedule:    schedule.map((b) => toScheduleEntry(b, now)),
-  serverTime:  now.toISOString(),
+  current:    content,
+  billboard:  buildBillboardSummary(billboard),
+  device:     sanitizeDisplayConfigForDevice(billboard?.displayConfig || {}, nowPKT),
+  schedule:   schedule.map((b) => toScheduleEntry(b, nowPKT)),
+  serverTime: new Date().toISOString(),
 });
 
 const buildLegacyDisplayResponse = (envelope) => ({
   ...envelope.content,
-  type:        envelope.type,
-  content:     envelope.content,
-  current:     envelope.current,
-  billboard:   envelope.billboard,
-  device:      envelope.device,
-  schedule:    envelope.schedule,
-  serverTime:  envelope.serverTime,
+  type:       envelope.type,
+  content:    envelope.content,
+  current:    envelope.current,
+  billboard:  envelope.billboard,
+  device:     envelope.device,
+  schedule:   envelope.schedule,
+  serverTime: envelope.serverTime,
 });
 
 // ─── DB / auth helpers ────────────────────────────────────────────────────────
@@ -217,14 +250,13 @@ const getManualOverride = async (billboard) => {
 
   // In-memory hit (server hasn't restarted)
   if (memoryOverride?.expiresAt > Date.now()) return memoryOverride;
-
   if (memoryOverride) manualDisplayOverrides.delete(billboardId);
 
   // Fall back to DB-persisted override (survives server restart)
-  const dc               = billboard?.displayConfig?.toObject
+  const dc              = billboard?.displayConfig?.toObject
     ? billboard.displayConfig.toObject()
     : billboard?.displayConfig || {};
-  const persistedExpiry  = dc.manualOverrideExpiresAt
+  const persistedExpiry = dc.manualOverrideExpiresAt
     ? new Date(dc.manualOverrideExpiresAt).getTime()
     : 0;
 
@@ -232,7 +264,7 @@ const getManualOverride = async (billboard) => {
     return { ...dc.manualOverridePayload, expiresAt: persistedExpiry };
   }
 
-  // Override has expired — clear it from DB
+  // Override expired — clear from DB
   if (dc.manualOverridePayload || dc.manualOverrideExpiresAt) {
     billboard.displayConfig = {
       ...dc,
@@ -247,8 +279,9 @@ const getManualOverride = async (billboard) => {
 
 // ─── Schedule loader ──────────────────────────────────────────────────────────
 
-const getScheduleForBillboard = async (billboardId, now = new Date()) => {
-  const { dayStart, dayEnd } = getTodayBounds(now);
+const getScheduleForBillboard = async (billboardId, nowPKT = getNowPKT()) => {
+  // getTodayBounds uses PKT-aware nowPKT so the correct UTC date window is queried
+  const { dayStart, dayEnd } = getTodayBounds(nowPKT);
 
   const bookings = await Booking.find({
     billboard:     billboardId,
@@ -256,8 +289,8 @@ const getScheduleForBillboard = async (billboardId, now = new Date()) => {
     status:        { $in: ['approved', 'scheduled', 'active'] },
     paymentStatus: 'paid',
   })
-    .populate('ad',       'title mediaUrl mediaType duration description approvalStatus isActive')
-    .populate('billboard','name city location imageUrl size type resolution status displayConfig')
+    .populate('ad',        'title mediaUrl mediaType duration description approvalStatus isActive')
+    .populate('billboard', 'name city location imageUrl size type resolution status displayConfig')
     .sort({ date: 1, createdAt: 1 });
 
   return bookings.filter(bookingHasPlayableAd).sort(scheduleSort);
@@ -265,25 +298,25 @@ const getScheduleForBillboard = async (billboardId, now = new Date()) => {
 
 // ─── Core display-state resolver ──────────────────────────────────────────────
 
-const resolveDisplayState = async (billboard, now = new Date()) => {
-  const schedule       = await getScheduleForBillboard(billboard._id, now);
+const resolveDisplayState = async (billboard, nowPKT = getNowPKT()) => {
+  const schedule       = await getScheduleForBillboard(billboard._id, nowPKT);
   const manualOverride = await getManualOverride(billboard);
 
-  // 1. Active manual override (Display Now) wins over schedule
+  // 1. Active Display-Now override always wins over schedule
   if (manualOverride?.mediaUrl || manualOverride?.imageUrl) {
     return {
       type: 'active',
       content: {
         ...manualOverride,
-        mediaUrl:  manualOverride.mediaUrl  || manualOverride.imageUrl || '',
-        imageUrl:  manualOverride.imageUrl  || manualOverride.mediaUrl || '',
+        mediaUrl: manualOverride.mediaUrl || manualOverride.imageUrl || '',
+        imageUrl: manualOverride.imageUrl || manualOverride.mediaUrl || '',
       },
       schedule,
     };
   }
 
-  // 2. Currently-active scheduled booking
-  const currentBooking = findCurrentBooking(schedule, now);
+  // 2. Currently-active scheduled booking (PKT slot check)
+  const currentBooking = findCurrentBooking(schedule, nowPKT);
   if (currentBooking) {
     if (currentBooking.status !== 'active') {
       currentBooking.status = 'active';
@@ -291,7 +324,7 @@ const resolveDisplayState = async (billboard, now = new Date()) => {
     }
     return {
       type:    'active',
-      content: toDisplayContent(currentBooking, now, 'schedule'),
+      content: toDisplayContent(currentBooking, nowPKT, 'schedule'),
       schedule,
     };
   }
@@ -307,17 +340,16 @@ const resolveDisplayState = async (billboard, now = new Date()) => {
 // ─── Playback-state updater ───────────────────────────────────────────────────
 
 const updateBillboardPlaybackState = async (billboard, content, req) => {
-  const now = new Date();
   billboard.displayConfig = {
     ...(billboard.displayConfig?.toObject
       ? billboard.displayConfig.toObject()
       : billboard.displayConfig || {}),
-    lastPayloadAt:        now,
-    lastPlaybackState:    content.status || 'idle',
-    lastNowPlayingTitle:  content.title  || '',
-    lastBookingId:        content.bookingId || null,
-    lastKnownIp:          req.ip || billboard.displayConfig?.lastKnownIp || '',
-    lastKnownUserAgent:   req.get('user-agent') || billboard.displayConfig?.lastKnownUserAgent || '',
+    lastPayloadAt:       new Date(),
+    lastPlaybackState:   content.status || 'idle',
+    lastNowPlayingTitle: content.title  || '',
+    lastBookingId:       content.bookingId || null,
+    lastKnownIp:         req.ip || billboard.displayConfig?.lastKnownIp || '',
+    lastKnownUserAgent:  req.get('user-agent') || billboard.displayConfig?.lastKnownUserAgent || '',
   };
   await billboard.save();
 };
@@ -326,14 +358,14 @@ const updateBillboardPlaybackState = async (billboard, content, req) => {
 // EXPORTED CONTROLLERS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// ─── Public billboard details (no auth) ───────────────────────────────────────
+// ─── Public billboard details ─────────────────────────────────────────────────
 export const getBillboardPublicDetails = async (req, res) => {
   try {
     const billboard = await loadBillboardWithConfig(req.params.id);
     if (!billboard) return res.status(404).json({ message: 'Billboard not found' });
 
-    const now   = new Date();
-    const state = await resolveDisplayState(billboard, now);
+    const nowPKT = getNowPKT();
+    const state  = await resolveDisplayState(billboard, nowPKT);
 
     return res.json({
       billboard: {
@@ -347,7 +379,7 @@ export const getBillboardPublicDetails = async (req, res) => {
         type:     state.type,
         content:  state.content,
         schedule: state.schedule,
-        now,
+        nowPKT,
       }),
     });
   } catch (error) {
@@ -355,7 +387,7 @@ export const getBillboardPublicDetails = async (req, res) => {
   }
 };
 
-// ─── Push a booking to display (shared helper — called by admin & advertiser) ─
+// ─── Push booking to display (shared — used by admin & advertiser) ────────────
 export const pushBookingToDisplay = async ({ bookingId, actorId, actorMode = 'admin', req }) => {
   if (!isValidObjectId(bookingId)) {
     return { status: 400, body: { message: 'Invalid Booking ID' } };
@@ -385,7 +417,7 @@ export const pushBookingToDisplay = async ({ bookingId, actorId, actorMode = 'ad
 
   if (
     !bookingHasPlayableAd(booking) ||
-    booking.paymentStatus !== 'paid'   ||
+    booking.paymentStatus !== 'paid' ||
     !['approved', 'scheduled', 'active'].includes(booking.status)
   ) {
     return {
@@ -395,27 +427,27 @@ export const pushBookingToDisplay = async ({ bookingId, actorId, actorMode = 'ad
   }
 
   await ensureBillboardDisplayConfig(booking.billboard);
-  const now     = new Date();
+  const nowPKT  = getNowPKT();
   const content = setManualOverride(
     booking.billboard,
-    toDisplayContent(booking, now, 'manual_push')
+    toDisplayContent(booking, nowPKT, 'manual_push')
   );
   await updateBillboardPlaybackState(booking.billboard, content, req);
   await booking.billboard.save();
 
-  const schedule = await getScheduleForBillboard(booking.billboard._id, now);
+  const schedule = await getScheduleForBillboard(booking.billboard._id, nowPKT);
   const envelope = buildDisplayEnvelope({
     billboard: booking.billboard,
     type:      'active',
     content,
     schedule,
-    now,
+    nowPKT,
   });
 
   return { status: 200, body: { message: 'Sent to display', data: envelope } };
 };
 
-// ─── Admin: send any ad / booking to display (Display Now) ───────────────────
+// ─── Admin: Display Now ───────────────────────────────────────────────────────
 export const sendAdToDisplay = async (req, res) => {
   try {
     const {
@@ -428,7 +460,6 @@ export const sendAdToDisplay = async (req, res) => {
       title     = 'Live Campaign',
     } = req.body;
 
-    // If a bookingId is supplied use the richer helper
     if (bookingId) {
       const result = await pushBookingToDisplay({
         bookingId,
@@ -444,6 +475,7 @@ export const sendAdToDisplay = async (req, res) => {
     if (!assertBillboardAccess(billboard, req.user._id, res)) return;
 
     const resolvedMedia = mediaUrl || imageUrl || '';
+    const nowPKT        = getNowPKT();
 
     const content = setManualOverride(billboard, {
       ...buildIdleContent(billboard),
@@ -460,8 +492,13 @@ export const sendAdToDisplay = async (req, res) => {
     await updateBillboardPlaybackState(billboard, content, req);
     await billboard.save();
 
-    const now      = new Date();
-    const envelope = buildDisplayEnvelope({ billboard, type: 'active', content, schedule: [], now });
+    const envelope = buildDisplayEnvelope({
+      billboard,
+      type:     'active',
+      content,
+      schedule: [],
+      nowPKT,
+    });
 
     return res.status(200).json({ message: 'Sent to display', data: envelope });
   } catch (error) {
@@ -469,7 +506,7 @@ export const sendAdToDisplay = async (req, res) => {
   }
 };
 
-// ─── Admin: list all billboards with display status ───────────────────────────
+// ─── Admin: display registry ──────────────────────────────────────────────────
 export const getDisplayRegistry = async (req, res) => {
   try {
     const billboards = await Billboard.find({})
@@ -489,8 +526,8 @@ export const getDisplayRegistry = async (req, res) => {
   }
 };
 
-// ─── Pi: get current display content (legacy flat response) ──────────────────
-//  Route must be:  GET /hardware/display  (no :id — uses query param)
+// ─── Pi: current display content (legacy flat response) ──────────────────────
+// Route: GET /hardware/display  (query param ?billboardId=)
 export const getCurrentDisplayContent = async (req, res) => {
   try {
     const billboardRef = req.query.billboardId || req.query.id || req.params.id;
@@ -499,13 +536,13 @@ export const getCurrentDisplayContent = async (req, res) => {
       const fallback = buildIdleContent();
       return res.status(200).json(
         buildLegacyDisplayResponse({
-          type:        'idle',
-          content:     fallback,
-          current:     fallback,
-          billboard:   buildBillboardSummary(null),
-          device:      sanitizeDisplayConfigForDevice({}, new Date()),
-          schedule:    [],
-          serverTime:  getIsoNow(),
+          type:       'idle',
+          content:    fallback,
+          current:    fallback,
+          billboard:  buildBillboardSummary(null),
+          device:     sanitizeDisplayConfigForDevice({}, new Date()),
+          schedule:   [],
+          serverTime: getIsoNow(),
         })
       );
     }
@@ -514,14 +551,14 @@ export const getCurrentDisplayContent = async (req, res) => {
     if (!billboard) return res.status(404).json({ message: 'Billboard not found' });
     if (!verifyDeviceToken(billboard, req, res)) return;
 
-    const now      = new Date();
-    const state    = await resolveDisplayState(billboard, now);
+    const nowPKT   = getNowPKT();
+    const state    = await resolveDisplayState(billboard, nowPKT);
     const envelope = buildDisplayEnvelope({
       billboard,
       type:     state.type,
       content:  state.content,
       schedule: state.schedule,
-      now,
+      nowPKT,
     });
     await updateBillboardPlaybackState(billboard, state.content, req);
 
@@ -531,23 +568,23 @@ export const getCurrentDisplayContent = async (req, res) => {
   }
 };
 
-// ─── Pi: get display content by billboard ID  ─────────────────────────────────
-//  Route must be:  GET /hardware/display/:billboardId
+// ─── Pi: display content by billboard ID ─────────────────────────────────────
+// Route: GET /hardware/display/:billboardId
 export const getDisplayContent = async (req, res) => {
   try {
-    // FIX: use billboardId (matches route param :billboardId), not .id
+    // FIX: req.params.billboardId matches route param :billboardId (was .id)
     const billboard = await loadBillboardWithConfig(req.params.billboardId);
     if (!billboard) return res.status(404).json({ message: 'Billboard not found' });
     if (!verifyDeviceToken(billboard, req, res)) return;
 
-    const now      = new Date();
-    const state    = await resolveDisplayState(billboard, now);
+    const nowPKT   = getNowPKT();
+    const state    = await resolveDisplayState(billboard, nowPKT);
     const envelope = buildDisplayEnvelope({
       billboard,
       type:     state.type,
       content:  state.content,
       schedule: state.schedule,
-      now,
+      nowPKT,
     });
     await updateBillboardPlaybackState(billboard, state.content, req);
 
@@ -558,10 +595,10 @@ export const getDisplayContent = async (req, res) => {
 };
 
 // ─── Pi: heartbeat ────────────────────────────────────────────────────────────
-//  Route must be:  POST /hardware/heartbeat/:billboardId
+// Route: POST /hardware/heartbeat/:billboardId
 export const reportDisplayHeartbeat = async (req, res) => {
   try {
-    // FIX: use billboardId (matches route param :billboardId), not .id
+    // FIX: req.params.billboardId matches route param :billboardId (was .id)
     const billboard = await loadBillboardWithConfig(req.params.billboardId);
     if (!billboard) return res.status(404).json({ message: 'Billboard not found' });
     if (!verifyDeviceToken(billboard, req, res)) return;
@@ -582,21 +619,22 @@ export const reportDisplayHeartbeat = async (req, res) => {
       ...(billboard.displayConfig?.toObject
         ? billboard.displayConfig.toObject()
         : billboard.displayConfig || {}),
-      deviceLabel:        String(deviceLabel || billboard.displayConfig?.deviceLabel || '').trim(),
-      lastHeartbeatAt:    now,
-      lastPlaybackState:  String(playbackState || 'idle').trim() || 'idle',
-      lastNowPlayingTitle:String(nowPlayingTitle || '').trim(),
-      lastBookingId:      bookingId || null,
-      lastKnownIp:        req.ip || '',
-      lastKnownUserAgent: req.get('user-agent') || '',
-      browserConnected:   Boolean(browserConnected),
-      arduinoConnected:   Boolean(arduinoConnected),
-      serialMode:         String(serialMode || 'raspberry_pi_native_player').trim(),
-      hardwareNotes:      String(hardwareNotes || '').trim().slice(0, 250),
+      deviceLabel:         String(deviceLabel || billboard.displayConfig?.deviceLabel || '').trim(),
+      lastHeartbeatAt:     now,
+      lastPlaybackState:   String(playbackState || 'idle').trim() || 'idle',
+      lastNowPlayingTitle: String(nowPlayingTitle || '').trim(),
+      lastBookingId:       bookingId || null,
+      lastKnownIp:         req.ip || '',
+      lastKnownUserAgent:  req.get('user-agent') || '',
+      browserConnected:    Boolean(browserConnected),
+      arduinoConnected:    Boolean(arduinoConnected),
+      serialMode:          String(serialMode || 'raspberry_pi_native_player').trim(),
+      hardwareNotes:       String(hardwareNotes || '').trim().slice(0, 250),
     };
     await billboard.save();
 
-    const state = await resolveDisplayState(billboard, now);
+    const nowPKT = getNowPKT();
+    const state  = await resolveDisplayState(billboard, nowPKT);
 
     return res.json({
       message:     'Heartbeat received.',
@@ -617,24 +655,24 @@ export const getBillboardHardwareStatus = async (req, res) => {
     if (!billboard) return res.status(404).json({ message: 'Billboard not found' });
     if (!assertBillboardAccess(billboard, req.user._id, res)) return;
 
-    const now   = new Date();
-    const state = await resolveDisplayState(billboard, now);
+    const nowPKT = getNowPKT();
+    const state  = await resolveDisplayState(billboard, nowPKT);
 
     return res.json({
       billboard: {
         ...buildBillboardSummary(billboard),
-        displayConfig: sanitizeDisplayConfigForAdmin(billboard.displayConfig, now),
+        displayConfig: sanitizeDisplayConfigForAdmin(billboard.displayConfig, new Date()),
       },
       current:  state.content,
       type:     state.type,
-      schedule: state.schedule.map((b) => toScheduleEntry(b, now)),
+      schedule: state.schedule.map((b) => toScheduleEntry(b, nowPKT)),
     });
   } catch (error) {
     return res.status(500).json({ message: 'Failed to load billboard hardware status', error: error.message });
   }
 };
 
-// ─── Admin: register a display device for a billboard ────────────────────────
+// ─── Admin: register a display device ────────────────────────────────────────
 export const registerDisplayDevice = async (req, res) => {
   try {
     const billboard = await loadBillboardWithConfig(req.params.id);
@@ -645,11 +683,11 @@ export const registerDisplayDevice = async (req, res) => {
       ...(billboard.displayConfig?.toObject
         ? billboard.displayConfig.toObject()
         : billboard.displayConfig || {}),
-      deviceLabel:      String(req.body?.deviceLabel || billboard.displayConfig?.deviceLabel || billboard.name || '').trim(),
-      browserConnected: false,
-      arduinoConnected: false,
-      serialMode:       'raspberry_pi_native_player',
-      lastPlaybackState:'registered',
+      deviceLabel:       String(req.body?.deviceLabel || billboard.displayConfig?.deviceLabel || billboard.name || '').trim(),
+      browserConnected:  false,
+      arduinoConnected:  false,
+      serialMode:        'raspberry_pi_native_player',
+      lastPlaybackState: 'registered',
     };
     await ensureBillboardDisplayConfig(billboard);
     await billboard.save();
@@ -671,11 +709,7 @@ export const rotateBillboardDeviceToken = async (req, res) => {
     if (!billboard) return res.status(404).json({ message: 'Billboard not found' });
 
     const newToken = crypto.randomBytes(18).toString('hex');
-
-    billboard.displayConfig = {
-      ...(billboard.displayConfig || {}),
-      deviceToken: newToken,
-    };
+    billboard.displayConfig = { ...(billboard.displayConfig || {}), deviceToken: newToken };
     await billboard.save();
 
     return res.json({ success: true, token: newToken, billboardId: billboard._id });

@@ -61,21 +61,34 @@ function formatPkr(value) {
 }
 
 function parse24HourToMinutes(timeStr) {
-  const [hours = 0, minutes = 0] = String(timeStr || "").split(":").map(Number);
-  return hours * 60 + minutes;
+
+  if (!timeStr) return 0;
+
+  const cleaned = String(timeStr).trim();
+
+  const [time, modifier] = cleaned.split(" ");
+
+  if (!time) return 0;
+
+  let [hours, minutes] = time.split(":").map(Number);
+
+  if (modifier === "PM" && hours !== 12) {
+    hours += 12;
+  }
+
+  if (modifier === "AM" && hours === 12) {
+    hours = 0;
+  }
+
+  return (hours * 60) + minutes;
 }
 
 function format24To12Hour(timeStr) {
-  const [rawHours = 0, rawMinutes = 0] = String(timeStr || "").split(":").map(Number);
-  const meridiem = rawHours >= 12 ? "PM" : "AM";
-  const hours = rawHours % 12 || 12;
-  return `${hours}:${String(rawMinutes).padStart(2, "0")} ${meridiem}`;
+  return timeStr;
 }
 
 function formatTimeRange(range) {
-  const [start = "", end = ""] = String(range || "").split("-");
-  if (!start || !end) return range;
-  return `${format24To12Hour(start)} - ${format24To12Hour(end)}`;
+  return range;
 }
 
 function extractDatePrefix(slot = "") {

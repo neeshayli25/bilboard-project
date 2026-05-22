@@ -374,7 +374,49 @@ export const getBillboardAvailability = async (req, res) => {
     date: bookingDate,
   });
 
-  const activeBookings = bookedSlotsRaw.filter((booking) => bookingBlocksAvailability(booking));
+  const now = new Date();
+
+const activeBookings = bookedSlotsRaw.filter((booking) => {
+
+  if (!bookingBlocksAvailability(booking)) {
+    return false;
+  }
+
+  try {
+
+    const parts = booking.timeSlot.split('-');
+
+    if (parts.length < 2) {
+      return false;
+    }
+
+    const endPart = parts[1].trim();
+
+    const [time, modifier] = endPart.split(' ');
+
+    let [hours, minutes] = time.split(':').map(Number);
+
+    if (modifier === 'PM' && hours !== 12) {
+      hours += 12;
+    }
+
+    if (modifier === 'AM' && hours === 12) {
+      hours = 0;
+    }
+
+    const bookingEnd = new Date(booking.date);
+
+    bookingEnd.setHours(hours);
+    bookingEnd.setMinutes(minutes);
+    bookingEnd.setSeconds(0);
+
+    return bookingEnd > now;
+
+  } catch (err) {
+
+    return false;
+  }
+});
   const bookedSlots = activeBookings.map((booking) => booking.timeSlot);
   const occupiedSlots = activeBookings.map((booking) => ({
     bookingId: booking._id,

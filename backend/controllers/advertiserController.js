@@ -394,45 +394,12 @@ export const getBillboardAvailability = async (req, res) => {
     message:       getOccupiedSlotMessage(b),
   }));
 
- const configuredSlots = [];
-
-function formatTime(hours, minutes) {
-
-  const suffix = hours >= 12 ? 'PM' : 'AM';
-
-  let h = hours % 12;
-
-  if (h === 0) h = 12;
-
-  return `${h}:${String(minutes).padStart(2, '0')} ${suffix}`;
-}
-
-// Generate full-day slots automatically
-for (let hour = 0; hour < 24; hour++) {
-
-  for (let minute = 0; minute < 60; minute += 2) {
-
-    const startHour = hour;
-    const startMinute = minute;
-
-    let endHour = hour;
-    let endMinute = minute + 2;
-
-    if (endMinute >= 60) {
-      endHour += 1;
-      endMinute -= 60;
-    }
-
-    if (endHour >= 24) continue;
-
-    const slot =
-      `${formatTime(startHour, startMinute)} - ` +
-      `${formatTime(endHour, endMinute)}`;
-
-    configuredSlots.push(slot);
-  }
-}
-
+ const configuredSlots = [
+  '9:00 AM - 12:00 PM',
+  '12:00 PM - 3:00 PM',
+  '3:00 PM - 6:00 PM',
+  '6:00 PM - 9:00 PM',
+];
 const availableSlots = configuredSlots.filter(
   (slot) =>
     !bookedSlots.some((booked) =>
